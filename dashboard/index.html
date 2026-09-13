@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="pLzGTTXFRKSIPFtNGfApGs">
+<head data-page-node-id="xQ3S6AUYDT4OzgVW38LpqR">
+<meta charset="UTF-8" data-page-node-id="eiHJXDy1TD2DadoftE5ZnE">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="jyUJA4Co7Rlih2eYngGo1I">
+<title>折淘客返利助手 · 仪表盘</title>
+<style>
+:root{
+  --bg:#f5f7fa; --card:#ffffff; --border:#e4e9f0; --text:#1f2d3d; --muted:#7f8fa4;
+  --primary:#2f6fed; --primary-soft:#eaf1fe; --green:#0aa870; --orange:#f0883a;
+  --red:#e04b4b; --radius:12px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+.topbar{background:var(--card);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
+.topbar h1{font-size:18px;font-weight:600}
+.topbar h1 span{color:var(--primary)}
+.topbar .actions{display:flex;gap:10px;align-items:center}
+button{border:none;border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer;background:var(--primary);color:#fff;transition:.15s}
+button:hover{filter:brightness(1.08)}
+button.ghost{background:var(--primary-soft);color:var(--primary)}
+button:disabled{opacity:.5;cursor:not-allowed}
+.wrap{width:calc(100% - 32px);margin:0 auto;padding:14px 0 60px}
+.tabs{display:flex;gap:6px;margin-bottom:18px;background:var(--card);padding:6px;border-radius:10px;border:1px solid var(--border);width:fit-content}
+.tab{padding:8px 18px;border-radius:8px;cursor:pointer;color:var(--muted);font-size:14px;user-select:none}
+.tab.active{background:var(--primary);color:#fff;font-weight:500}
+.panel{display:none}
+.panel.active{display:block}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:20px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px}
+.card .k{color:var(--muted);font-size:12px;margin-bottom:6px}
+.card .v{font-size:24px;font-weight:600}
+.card .v small{font-size:12px;color:var(--muted);font-weight:400}
+.card.green .v{color:var(--green)}
+.card.blue .v{color:var(--primary)}
+.card.orange .v{color:var(--orange)}
+.card.red .v{color:var(--red)}
+.box{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:18px;overflow-x:auto}
+.box h3{font-size:15px;margin-bottom:12px;font-weight:600;position:sticky;left:0}
+.filters{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;align-items:center}
+select,input{padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:#fff;color:var(--text);outline:none}
+input:focus,select:focus{border-color:var(--primary)}
+table{display:table;width:100%;border-collapse:collapse;font-size:13px}
+th{background:#f0f4f9;text-align:left;padding:10px 12px;color:var(--muted);font-weight:500;white-space:nowrap}
+td{padding:10px 12px;border-top:1px solid var(--border);white-space:nowrap}
+td:nth-child(3){max-width:280px;overflow:hidden;text-overflow:ellipsis}
+/* 少量列的窄表（统计/绑定等）列宽自动铺满整行 */
+table:not(:has(td:nth-child(4))) th:last-child,
+table:not(:has(td:nth-child(4))) td:last-child{width:40%}
+tr:hover td{background:#f8fafd}
+.tag{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px}
+.tag.ok{background:#e6f7f0;color:var(--green)}
+.tag.paid{background:var(--primary-soft);color:var(--primary)}
+.tag.refund{background:#fdeaea;color:var(--red)}
+.pf{font-weight:600}
+.pf.美团{color:#ffbe00}.pf.淘宝{color:#ff5000}.pf.饿了么{color:#0085ff}.pf.抖音{color:#111}
+.pager{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:12px;color:var(--muted);font-size:13px}
+.empty{text-align:center;color:var(--muted);padding:36px 0}
+.muted{color:var(--muted)}
+.money{font-weight:600;color:var(--orange)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:800px){.grid2{grid-template-columns:1fr}}
+.result{background:#f7f9fc;border:1px dashed var(--border);border-radius:8px;padding:12px;margin-top:12px;font-size:13px;word-break:break-all;white-space:pre-wrap;min-height:20px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:var(--green)}
+#toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;opacity:0;transition:.3s;pointer-events:none;z-index:99}
+#toast.show{opacity:.92}
+.help li{margin:8px 0;line-height:1.7}
+.help code{background:#f0f4f9;padding:2px 6px;border-radius:4px;color:var(--primary);font-size:12px}
+</style>
+</head>
+<body data-page-node-id="h3qcrLunWM4hhM3dPHrmul">
+<div class="topbar" data-page-node-id="Dh3Ceu1dxmCb0UnPxugzY6">
+  <h1 data-page-node-id="LLW96KKj2aS7xDHRoLLHnv">🛵 折淘客返利助手 <span data-page-node-id="0nnkkXQUDdetLDouAfmlvy">· 仪表盘</span></h1>
+  <div class="actions" data-page-node-id="VbzbZ4tkQ4saG6KtnXpNwK">
+    <span class="muted" id="syncTime" data-page-node-id="FQtHAVRy50gW2gvUGtwhpt"></span>
+    <button class="ghost" onclick="doSync()" id="syncBtn" data-page-node-id="KD0dAlC0CUtNWAzt4SGrij">⟳ 立即同步订单</button>
+  </div>
+</div>
+<div class="wrap" data-page-node-id="7u1xZMdvlOR33TDwqI3p9D">
+  <div class="tabs" data-page-node-id="cbC0N6WqftyoqswAbJFtcZ">
+    <div class="tab active" data-p="p1" data-page-node-id="s15jyWGtgqCScyKchgiHpi">📊 数据总览</div>
+    <div class="tab" data-p="p2" data-page-node-id="kz91tI9Vp4uXOXbVEu9rgl">📋 订单查询</div>
+    <div class="tab" data-p="p3" data-page-node-id="dy67exUeqnsDEffIyG2VxD">👥 用户返利</div>
+    <div class="tab" data-p="p4" data-page-node-id="qGskrCNJzd0XAyjOBPUKST">🔗 转链工具</div>
+    <div class="tab" data-p="p5" data-page-node-id="Z0qjbanzb3Cazp8wf2T7Mo">📖 使用说明</div>
+  </div>
+
+  <!-- 数据总览 -->
+  <div class="panel active" id="p1" data-page-node-id="qNBo7lrngGU3gmlQR1kRY6">
+    <div class="cards" id="statCards" data-page-node-id="lnOXdDETdVjF7hUM7kLElE"></div>
+    <div class="box" data-page-node-id="EaC2h8jrJIxbWUsFtfHH3p">
+      <h3 data-page-node-id="GFSHWgn7KWiJULcMtIsFc1">各平台订单分布</h3>
+      <table data-page-node-id="Zeq11bRMBgRsebE2yB7Ect"><thead data-page-node-id="9ixTNbwwBt38Fe7o0hsK6L"><tr data-page-node-id="fcNxxUvDAR2n4WpJqvbUBZ"><th data-page-node-id="pcOSVMcuiqkNsh5ZwkAh4s">平台</th><th data-page-node-id="RmbotOHJ1iJcXwh0G21vJE">订单数</th><th data-page-node-id="9HLSDUzzpX9jNKBuLg5FAq">佣金合计</th></tr></thead>
+      <tbody id="pfRows" data-page-node-id="OoiQUpjCRluzdVjiA9KAJ1"></tbody></table>
+    </div>
+  </div>
+
+  <!-- 订单查询 -->
+  <div class="panel" id="p2" data-page-node-id="sqyqfziTlDqTuyaIwfyy8U">
+    <div class="box" data-page-node-id="0F4aVDIpCCNQtcC0L7sqtH">
+      <div class="filters" data-page-node-id="X7XV4kGyFv8gqrFJr3w9PD">
+        <select id="fPlatform" data-page-node-id="5XC72ZTHs9AbHRXGRHgCGS"><option value="" data-page-node-id="xLcBuvejZ20pqoVWJfEo0U">全部平台</option></select>
+        <select id="fStatus" data-page-node-id="eOxcIGp6kyNFjXSL7com8P">
+          <option value="" data-page-node-id="XtDg6qHAzHVd21GI5sh0NW">全部状态</option>
+          <option value="1" data-page-node-id="vyw2LZCgM6Hdno2dHEXphB">已付款</option>
+          <option value="8" data-page-node-id="CoaKWuGChWtH95UHc2VJLi">已完成</option>
+          <option value="9" data-page-node-id="RG84NYfJ3GEiluNwYe45Vu">已退款/风控</option>
+        </select>
+        <input id="fStart" type="date" title="支付开始日期" data-page-node-id="J1b9lENmKydzC10IYzRXoE">
+        <input id="fEnd" type="date" title="支付结束日期" data-page-node-id="eDF0zT5u2wtjjFxrHAAD3z">
+        <input id="fQ" placeholder="搜索订单号 / 标题 / 返利ID" style="width:220px" data-page-node-id="XBTss4PoQSZZGeBLDFPxfU">
+        <button onclick="loadOrders(1)" data-page-node-id="MQ1ItJINymHF4eJqiSkVNJ">查询</button>
+      </div>
+      <table data-page-node-id="AAqsFzCisvQxxwtgWtmwjD">
+        <thead data-page-node-id="wlS6xuQkAC0s9SJcM6jf5S"><tr data-page-node-id="KROIYs7WKJhA7NrBbXVetB"><th data-page-node-id="owwB5qJmOEo1yYKys4Egd3">平台</th><th data-page-node-id="M9Nsz9vNSfOBlC1jbTfJp3">订单号</th><th data-page-node-id="dgOOAmrNOOce8xzKTMeCb1">标题</th><th data-page-node-id="FLKg3LGe64jyexCTs30iim">支付金额</th><th data-page-node-id="KZGoyVp0P34kZs8BANRJGN">佣金</th>
+        <th data-page-node-id="x54sgpZwu5H2OE0YLGIsvx">返利</th><th data-page-node-id="BfttlC4HOp12YgoWkgL0hd">状态</th><th data-page-node-id="4D0ybyT9OtXfMDzLFWmVAB">结算</th><th data-page-node-id="0KxECEKkNq7OR1g2OFGviS">支付时间</th><th data-page-node-id="fKfyTHlzsP8B3TXHBQcCgK">返利ID</th></tr></thead>
+        <tbody id="orderRows" data-page-node-id="iPEuvsCLodPsmRFUsRTSnw"></tbody>
+      </table>
+      <div class="pager" data-page-node-id="ghdimSp1CDcOAcXKg0lffO">
+        <button class="ghost" onclick="loadOrders(page-1)" id="prevBtn" data-page-node-id="RhTfUU6NVvhZ5llSwWtCbW">上一页</button>
+        <span id="pageInfo" data-page-node-id="KxzIqCRhhql9bhQBxKSq5U"></span>
+        <button class="ghost" onclick="loadOrders(page+1)" id="nextBtn" data-page-node-id="o1e7CSgNCvDXOidnfKITlu">下一页</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 用户返利 -->
+  <div class="panel" id="p3" data-page-node-id="Q9ZxyLbVgUCYknkl7E9gGZ">
+    <div class="box" data-page-node-id="YeaLz0c1TejADHMclMAhVv">
+      <h3 data-page-node-id="CHsmA3q1xH1iukApl0bNvW">用户绑定与返利汇总（返利比例 <span id="rateTxt1" class="money" data-page-node-id="S6hUbEGjqTSzr8Z8Nd5s1E"></span>）</h3>
+      <table data-page-node-id="3jcDP5dPSCPQupiqad7o3f">
+        <thead data-page-node-id="Ri8TfAoHmupnVGTBA0nXeX"><tr data-page-node-id="F6EX97z3uHeq2bP03fmSZq"><th data-page-node-id="QFiVq1aOUWMY10OHwNyPpL">返利ID</th><th data-page-node-id="MnjUqHCQ4w8GgNsBfOzS9i">绑定时间</th><th data-page-node-id="A4Co1QGsKWVhuEz3f8vGbd">订单数</th><th data-page-node-id="AluK6mmvPQXNS3TwNtEjg8">订单佣金</th><th data-page-node-id="Vi9u7MXFDR2ZwkYhqr3jYx">已结算佣金</th><th data-page-node-id="KTzTTchY9pcdEnO4CT7ezH">应返利金额</th></tr></thead>
+        <tbody id="bindRows" data-page-node-id="3zyHEaI4eQVDd5HcbCQxHc"></tbody>
+      </table>
+      <div class="empty" id="bindEmpty" style="display:none" data-page-node-id="mnCKAnzzNq1NVbP0IZdk9X">暂无用户绑定。用户在聊天里发送「绑定」即可获得返利ID。</div>
+    </div>
+  </div>
+
+  <!-- 转链工具 -->
+  <div class="panel" id="p4" data-page-node-id="vSLuauZNU0QxyERjFVobzu">
+    <div class="grid2" data-page-node-id="aPYEh3BClLDUvIc3la2NiX">
+      <div class="box" data-page-node-id="tLstAKCrgdmEf2hTJ3LOut">
+        <h3 data-page-node-id="ZCBKZFKov92m1VWTgweEJ5">红包/活动转链</h3>
+        <div class="filters" data-page-node-id="rQyubHT25CDLVVwFbmGoHS">
+          <select id="cPlatform" data-page-node-id="48SiLVTR6ezCEpSC9eK4P6">
+            <option value="meituan" data-page-node-id="GW5MBHyZM0x8BPIC3hkrkW">美团外卖红包</option>
+            <option value="eleme" data-page-node-id="9zoUvpjvGk1SbWvewpyfVc">饿了么/闪购红包</option>
+          </select>
+          <input id="cBind" placeholder="返利ID(可空)" style="width:130px" data-page-node-id="wPI6CyIYQpqfC5giqY1Qol">
+          <button onclick="convert()" data-page-node-id="QG0kFQCkIghWfJdiUPq5UH">生成推广链接</button>
+        </div>
+        <div class="result" id="cResult" data-page-node-id="otM05EMnBr5EvzjneHrMjG">生成结果将显示在这里…</div>
+      </div>
+      <div class="box" data-page-node-id="EYEroNgZmkqsQxFw8DdGSu">
+        <h3 data-page-node-id="1xLKOl0ZZzVkBj1QD5cSfL">商品转链</h3>
+        <div class="filters" data-page-node-id="hieRBYAiMedkNpjZzdPO7h">
+          <select id="cPlatform2" data-page-node-id="DClrXVTDAse6t1WmRmUctV">
+            <option value="taobao" data-page-node-id="HIMkboBV13NPsHvBOQW1yQ">淘宝（淘口令/链接）</option>
+            <option value="douyin" data-page-node-id="0dXuuSbRFJ48l3H4SQ06tJ">抖音（链接/口令）</option>
+          </select>
+          <input id="cBind2" placeholder="返利ID(可空)" style="width:130px" data-page-node-id="EQZRQQTN4wgODDJYF3qG71">
+        </div>
+        <div class="filters" data-page-node-id="sSvDmmbQw3PfuSEOomUvwZ">
+          <input id="cContent" placeholder="粘贴淘口令 / 商品链接 / 口令" style="flex:1" data-page-node-id="jOW6e95FyjNhwp2VHTD5yz">
+          <button onclick="convert2()" data-page-node-id="OdGaW7Es8W0vCupBbxcHPg">转链</button>
+        </div>
+        <div class="result" id="cResult2" data-page-node-id="3GbppgEzvzD8txDpFil5yD">转链结果将显示在这里…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 使用说明 -->
+  <div class="panel" id="p5" data-page-node-id="DUrtCybqKd7mes0MXFW3BA">
+    <div class="box help" data-page-node-id="NEbqmpb5SmeDYnphDHWy2S">
+      <h3 data-page-node-id="Jccrm4v55QAKsmU6ENLRVF">📖 使用说明</h3>
+      <ul data-page-node-id="0jq2iTb14WqGPgHWRmXRAX">
+        <li data-page-node-id="FHnOln1fxKPW9hBsZDQIcb"><b data-page-node-id="3Ucs3C5AVFLbI6H4POciTb">数据来源</b>：折淘客开放平台 API（<code data-page-node-id="YbKTX7cF3mgnTrUeXAn3Y6">zhetaoke.com</code>）。插件按配置的间隔自动轮询美团订单、联盟全平台订单与淘宝订单明细并入库。</li>
+        <li data-page-node-id="P3SCgAblPJ8JxLUYn1ZsNI"><b data-page-node-id="RLjInnwqRZhXIWGltGvaUe">覆盖平台</b>：美团外卖/闪购、饿了么（淘宝闪购）、淘宝、抖音、京东、拼多多、唯品会等（联盟订单接口覆盖）。</li>
+        <li data-page-node-id="wil2bba5eGCAMgErhyx2Hx"><b data-page-node-id="bkcKd7cQDfRYENkrTXlKJI">返利归因</b>：美团/饿了么走 <code data-page-node-id="rWs24z0aTOxC53roSGxrCH">customer_id</code>，抖音走 <code data-page-node-id="IG7YHnJXzSFJSmHtwilnif">external_info</code>，淘宝走 <code data-page-node-id="LDCCrMFDZpiEWstGghfjvn">external_id</code>，均为 11 位内数字，与用户绑定 ID 一致即归档到该用户名下。</li>
+        <li data-page-node-id="fIBE5OqFsichLhQczOZD7L"><b data-page-node-id="3hfX9VIFnBpuv5HE4gAzym">聊天指令</b>：<code data-page-node-id="Y1Wajb9mHN9eFa0FvjF8vD">绑定</code>、<code data-page-node-id="8p79VcB5komsLqVNW1S8Xl">我的返利</code>、<code data-page-node-id="U5oqJsv8i0EijVGvwUpLxZ">查订单</code>、<code data-page-node-id="CGWmF9M2QIGRnY3RbVQFTG">美团红包</code>、<code data-page-node-id="7XDlME9BRuElJRXH9AOZGW">闪购红包</code>、<code data-page-node-id="WohGf79RmR1ctfYaDk5RGM">淘宝转链 内容</code>、<code data-page-node-id="S4I8Kxi9a3THbMBOaAEmik">抖音转链 内容</code>、<code data-page-node-id="FuUTQaq7Tl4BlDF0sW5QD6">搜抖音 关键词</code>、<code data-page-node-id="Z0xNGXA8GND7MHhG7IL3Z6">同步订单</code>(管理员)。</li>
+        <li data-page-node-id="04GV00Bp3VD7SKgbxLYA55"><b data-page-node-id="8vxWP2oxPJs4qLRPXSLIfO">限速提醒</b>：折淘客禁止多线程高频调用，轮询间隔请勿低于 2 分钟；淘宝订单接口单次最多查 3 小时。</li>
+        <li data-page-node-id="YRCOZRpIuXV5B7n0HJuaSo"><b data-page-node-id="YoFtBV334eqPr3NSs07BK3">前置条件</b>：必须在折淘客后台完成淘宝账号授权（获得 SID），且订单必须由折淘客转链接口产生才能被查到。</li>
+        <li data-page-node-id="fQ8dIWIZfnQwghEG8ui3Mx"><b data-page-node-id="wal7INQYnOcIDFpgHDgUei">访问控制</b>：如配置了 WebUI 访问令牌，请在本页地址后追加 <code data-page-node-id="MXlVq5Xjt00jZgRQ1VEcGZ">?token=你的令牌</code>。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+<div id="toast" data-page-node-id="4cxI3RVJicLA7rTyJQQvy0"></div>
+
+<script>
+let page=1, pageSize=20;
+const $=s=>document.querySelector(s);
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200)}
+function money(v){return '¥'+Number(v||0).toFixed(2)}
+function statusTag(r){
+  const map={'1':['paid','已付款'],'8':['ok','已完成'],'9':['refund','已退款/风控']};
+  const [cls,txt]=map[r.status]||['paid',r.status_text||r.status||'—'];
+  return `<span class="tag ${cls}">${txt}</span>`;
+}
+function pfTag(p){return `<span class="pf ${p}">${p}</span>`}
+
+async function loadStats(){
+  const s=await (await fetch('/api/stats'+location.search)).json();
+  $('#statCards').innerHTML=`
+    <div class="card blue"><div class="k">订单总数</div><div class="v">${s.cnt}</div></div>
+    <div class="card orange"><div class="k">佣金合计(预估)</div><div class="v">${money(s.profit_total)}</div></div>
+    <div class="card green"><div class="k">已结算佣金</div><div class="v">${money(s.profit_settled)}</div></div>
+    <div class="card orange"><div class="k">今日订单</div><div class="v">${s.cnt_today}<small> 笔 / ${money(s.profit_today)}</small></div></div>
+    <div class="card red"><div class="k">退款/风控订单</div><div class="v">${s.cnt_refund}</div></div>`;
+  $('#pfRows').innerHTML=s.by_platform.map(r=>
+    `<tr><td>${pfTag(r.platform)}</td><td>${r.cnt}</td><td class="money">${money(r.profit)}</td></tr>`).join('')
+    ||'<tr><td colspan="3" class="empty">暂无数据，等待订单同步…</td></tr>';
+  const sel=$('#fPlatform');
+  const cur=sel.value;
+  sel.innerHTML='<option value="">全部平台</option>'+s.by_platform.map(r=>`<option>${r.platform}</option>`).join('');
+  if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
+  $('#syncTime').textContent='数据更新于 '+new Date().toLocaleTimeString();
+}
+
+function orderFilters(){
+  const p=new URLSearchParams(location.search);
+  const q=new URLSearchParams(p);
+  if($('#fPlatform').value) q.set('platform',$('#fPlatform').value);
+  if($('#fStatus').value) q.set('status',$('#fStatus').value);
+  const st=$('#fStart').value, en=$('#fEnd').value;
+  if(st) q.set('start',st+' 00:00:00');
+  if(en) q.set('end',en+' 23:59:59');
+  if($('#fQ').value) q.set('q',$('#fQ').value);
+  return q.toString();
+}
+
+async function loadOrders(p){
+  page=Math.max(1,p||1);
+  const qs=orderFilters()+'&page='+page+'&page_size='+pageSize;
+  const d=await (await fetch('/api/orders?'+qs)).json();
+  if(d.error){toast(d.error);return}
+  const rows=d.rows||[];
+  $('#orderRows').innerHTML=rows.map(r=>`
+    <tr><td>${pfTag(r.platform)}</td><td>${r.orderid}</td><td title="${r.title}">${r.title||'—'}</td>
+    <td>${money(r.pay_price)}</td><td class="money">${money(r.profit)}</td>
+    <td class="money" style="color:var(--green)">${money(r.rebate)}</td>
+    <td>${statusTag(r)}</td>
+    <td>${r.settled?`<span class="tag ok">已结算 ${money(r.settle_profit)}</span>`:'<span class="muted">未结算</span>'}</td>
+    <td class="muted">${r.pay_time||'—'}</td><td class="muted">${r.customer_id||'—'}</td></tr>`).join('')
+    ||'<tr><td colspan="10" class="empty">没有符合条件的订单</td></tr>';
+  const totalPage=Math.max(1,Math.ceil(d.total/pageSize));
+  $('#pageInfo').textContent=`共 ${d.total} 条 / 第 ${page} 页（返利比例 ${Math.round(d.rebate_rate*100)}%）`;
+  $('#prevBtn').disabled=page<=1; $('#nextBtn').disabled=page>=totalPage;
+}
+
+async function loadBindings(){
+  const d=await (await fetch('/api/bindings'+location.search)).json();
+  $('#rateTxt1').textContent=Math.round(d.rebate_rate*100)+'%';
+  const rows=d.rows||[];
+  $('#bindRows').innerHTML=rows.map(r=>`
+    <tr><td><b>${r.bind_id}</b></td><td class="muted">${r.created_at||'—'}</td>
+    <td>${r.cnt}</td><td class="money">${money(r.total)}</td>
+    <td>${money(r.settled)}</td><td class="money" style="color:var(--green)">${money(r.rebate)}</td></tr>`).join('')
+    ||'<tr><td colspan="6" class="empty">暂无绑定用户</td></tr>';
+  $('#bindEmpty').style.display=rows.length?'none':'block';
+}
+
+async function doSync(){
+  const b=$('#syncBtn');b.disabled=true;b.textContent='同步中…';
+  try{
+    const d=await (await fetch('/api/sync',Object.assign({method:'POST'},location.search?{body:location.search.slice(1)}:{}))).json();
+    if(d.ok){const t=Object.entries(d.result||{}).map(([k,v])=>`${k}+${v}`).join('，')||'无新增';
+      toast('同步完成：'+t);loadStats();if(document.querySelector('#p2.active'))loadOrders(page);}
+    else toast(d.error||'同步失败');
+  }catch(e){toast('同步请求失败: '+e)}
+  b.disabled=false;b.textContent='⟳ 立即同步订单';
+}
+
+async function convert(){
+  const q=new URLSearchParams(location.search);
+  const qs=new URLSearchParams(q);
+  qs.set('platform',$('#cPlatform').value);
+  if($('#cBind').value)qs.set('bind_id',$('#cBind').value);
+  $('#cResult').textContent='请求中…';
+  const d=await (await fetch('/api/convert?'+qs.toString())).json();
+  $('#cResult').textContent=JSON.stringify(d,null,2);
+}
+async function convert2(){
+  const q=new URLSearchParams(location.search);
+  const qs=new URLSearchParams(q);
+  qs.set('platform',$('#cPlatform2').value);
+  qs.set('content',$('#cContent').value.trim());
+  if(!qs.get('content')){toast('请输入商品链接或口令');return}
+  if($('#cBind2').value)qs.set('bind_id',$('#cBind2').value);
+  $('#cResult2').textContent='请求中…';
+  const d=await (await fetch('/api/convert?'+qs.toString())).json();
+  $('#cResult2').textContent=JSON.stringify(d,null,2);
+}
+
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active');$('#'+t.dataset.p).classList.add('active');
+  if(t.dataset.p==='p1')loadStats();
+  if(t.dataset.p==='p2')loadOrders(1);
+  if(t.dataset.p==='p3')loadBindings();
+}));
+$('#fQ').addEventListener('keydown',e=>{if(e.key==='Enter')loadOrders(1)});
+
+loadStats();
+loadOrders(1);
+loadBindings();
+</script>
+</body>
+</html>
