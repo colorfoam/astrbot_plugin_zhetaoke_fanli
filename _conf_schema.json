@@ -1,0 +1,174 @@
+{
+  "折淘客凭据": {
+    "description": "折淘客开放平台凭据（在 zhetaoke.com 用户中心-对接秘钥 获取）",
+    "type": "object",
+    "items": {
+      "appkey": {
+        "description": "折淘客对接秘钥 appkey",
+        "type": "string",
+        "secret": true,
+        "obvious_hint": true,
+        "hint": "zhetaoke.com 用户中心「对接秘钥」页面获取",
+        "default": ""
+      },
+      "sid": {
+        "description": "淘客账号授权SID（美团/饿了么/抖音转链及淘宝订单查询共用）",
+        "type": "string",
+        "obvious_hint": true,
+        "hint": "zhetaoke.com 用户中心「淘宝授权」页面获取，如 16ztkzheta",
+        "default": ""
+      },
+      "pid": {
+        "description": "淘宝联盟PID（淘宝转链必填，mm_xxx_xxx_xxx 三段格式，须与授权账号一致）",
+        "type": "string",
+        "hint": "mm_123_456_789 格式",
+        "default": ""
+      }
+    }
+  },
+  "返利设置": {
+    "description": "下级返利与归因配置",
+    "type": "object",
+    "items": {
+      "rebate_rate": {
+        "description": "下级返利比例（0~1，0.3 表示把佣金的 30% 返给用户）",
+        "type": "float",
+        "default": 0.3
+      },
+      "meituan_act_id": {
+        "description": "美团默认活动ID（33=美团外卖节，273=美团闪购红包，309=美食团购）",
+        "type": "string",
+        "hint": "可选：7/272/273/284/309/442/529/689",
+        "default": "33"
+      },
+      "eleme_act_id": {
+        "description": "饿了么/淘宝闪购默认活动ID（10144=天天领红包，12698=闪购品牌日）",
+        "type": "string",
+        "default": "10144"
+      },
+      "eleme_qrcode_type": {
+        "description": "闪购红包二维码类型（tb=淘宝独立二维码，推荐，外部扫码可直接打开；wx=微信小程序码，仅微信内可打开）",
+        "type": "string",
+        "options": ["tb", "wx"],
+        "default": "tb"
+      },
+      "rp_text_style": {
+        "description": "回复消息样式（plain=纯文本；markdown=始终 Markdown；auto=按渠道自动：仅下方「Markdown 渠道列表」里的平台发 Markdown，其余发纯文本。作用于红包文案、定时推送、查订单/我的返利。注意：aiocqhttp/NapCat 不渲染 Markdown，会原样显示 ** 号，QQ 建议用 auto 或 plain）",
+        "type": "string",
+        "options": ["plain", "markdown", "auto"],
+        "default": "plain"
+      },
+      "rp_md_platforms": {
+        "description": "Markdown 渠道列表（样式为 auto 时生效）。填平台名，如 weixin；平台名看 AstrBot 日志消息行方括号里的标识，如 [机器人(aiocqhttp)] 的 aiocqhttp",
+        "type": "list",
+        "default": ["weixin"]
+      },
+      "rp_template": {
+        "description": "红包文案自定义模板（留空=内置默认版式）。占位符：{标题} {描述} {链接} {二维码} {返利ID}；引用了空值占位符的整行会自动移除（如美团没有{描述}时该行不显示）。示例：**{标题}**\\n> {描述}\\n\\n[👉 点我领红包]({链接})\\n下单后订单自动归你名下~",
+        "type": "text",
+        "default": ""
+      },
+      "rp_send_mode": {
+        "description": "红包发送方式（美团红包/闪购红包）",
+        "type": "string",
+        "default": "both",
+        "hint": "both=文字(含链接)+二维码图片；link=仅文字链接；image=仅二维码图片"
+      }
+    }
+  },
+  "订单同步": {
+    "description": "定时轮询折淘客订单接口入库（折淘客限速：请勿低于2分钟）",
+    "type": "object",
+    "items": {
+      "poll_interval_minutes": {
+        "description": "轮询间隔（分钟，最低2）",
+        "type": "int",
+        "default": 5
+      },
+      "backfill_days": {
+        "description": "启动时回溯最近 N 天历史订单（0=不回溯，最大730即两年；按天拉取受折淘客限速，两年约50分钟一次性完成，也可用「回溯订单 [天数]」指令手动触发）",
+        "type": "int",
+        "default": 7
+      },
+      "poll_meituan": {
+        "description": "同步美团外卖/闪购订单（open_meituan_orderList2）",
+        "type": "bool",
+        "default": true
+      },
+      "poll_lianmeng": {
+        "description": "同步联盟全平台订单（open_lianmeng_orderList，含淘宝/饿了么/抖音/京东等）",
+        "type": "bool",
+        "default": true
+      },
+      "poll_taobao": {
+        "description": "同步淘宝/饿了么订单明细（open_dingdanchaxun2，需配置SID）",
+        "type": "bool",
+        "default": true
+      },
+      "push_enabled": {
+        "description": "检测到新订单时推送提醒给管理员",
+        "type": "bool",
+        "default": false
+      },
+      "admin_ids": {
+        "description": "管理员列表（UID 如 549087409，或 UMO 如 aiocqhttp:FriendMessage:549087409）；可用于「同步订单」权限判断与新订单推送。AstrBot 主配置的管理员始终有效",
+        "type": "list",
+        "default": []
+      }
+    }
+  },
+  "会话与推送": {
+    "description": "私聊/群聊黑白名单与定时推送",
+    "type": "object",
+    "items": {
+      "chat_filter_mode": {
+        "description": "会话过滤模式（off=不过滤；blacklist=黑名单模式，名单内的群/用户不能使用本插件指令；whitelist=白名单模式，仅名单内的群/用户可用）",
+        "type": "string",
+        "options": ["off", "blacklist", "whitelist"],
+        "default": "off"
+      },
+      "chat_blacklist": {
+        "description": "黑名单列表（过滤模式=blacklist 时生效）。填群号或QQ号，每行一个；也支持完整 UMO（如 aiocqhttp:GroupMessage:577085440）",
+        "type": "list",
+        "default": []
+      },
+      "chat_whitelist": {
+        "description": "白名单列表（过滤模式=whitelist 时生效）。填群号或QQ号，每行一个；也支持完整 UMO",
+        "type": "list",
+        "default": []
+      },
+      "push_tasks": {
+        "description": "旧版手动定时推送（保留兼容，推荐在 WebUI「插件页面」→「⏰ 定时推送」里可视化管理：cron 表达式定时、平台下拉选择、自动读取群/好友列表）。此处每行一条，格式：HH:MM|平台:群或私聊:ID|类型。类型：meituan=美团红包 / eleme=闪购红包 / orders=订单日报。示例：08:30|aiocqhttp:群:577085440|meituan。注意：qq_official 平台不支持主动发送，请用 NapCat(aiocqhttp) 等平台",
+        "type": "list",
+        "default": []
+      },
+      "push_bind_id": {
+        "description": "红包推送的返利ID归因（选填，纯数字≤11位）。留空则推送的红包订单不归因到具体用户",
+        "type": "string",
+        "default": ""
+      }
+    }
+  },
+  "WebUI仪表盘": {
+    "description": "内置网页仪表盘（订单浏览/搜索/统计/转链工具）",
+    "type": "object",
+    "items": {
+      "web_enabled": {
+        "description": "启用独立 WebUI（插件页面已内置仪表盘，一般无需开启）",
+        "type": "bool",
+        "default": false
+      },
+      "web_port": {
+        "description": "WebUI 端口",
+        "type": "int",
+        "default": 17878
+      },
+      "web_password": {
+        "description": "WebUI 访问令牌（留空不鉴权；设置后访问需带 ?token=xxx）",
+        "type": "string",
+        "secret": true,
+        "default": ""
+      }
+    }
+  }
+}
