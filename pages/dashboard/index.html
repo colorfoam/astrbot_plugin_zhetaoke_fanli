@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>折淘客返利助手</title>
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+<div class="topbar">
+  <h1>🛵 折淘客返利助手 <span>· 仪表盘</span></h1>
+  <div class="actions">
+    <span class="muted" id="syncTime"></span>
+    <button class="ghost" id="syncBtn">⟳ 立即同步订单</button>
+  </div>
+</div>
+<div class="wrap">
+  <div class="tabs">
+    <div class="tab active" data-p="p1">📊 数据总览</div>
+    <div class="tab" data-p="p2">📋 订单查询</div>
+    <div class="tab" data-p="p3">👥 用户返利</div>
+    <div class="tab" data-p="p4">🔗 转链工具</div>
+    <div class="tab" data-p="p6">⏰ 定时推送</div>
+    <div class="tab" data-p="p5">📖 使用说明</div>
+  </div>
+
+  <div class="panel active" id="p1">
+    <div class="cards" id="statCards"></div>
+    <div class="box">
+      <h3>各平台订单分布</h3>
+      <table><thead><tr><th>平台</th><th>订单数</th><th>佣金合计</th></tr></thead>
+      <tbody id="pfRows"></tbody></table>
+    </div>
+  </div>
+
+  <div class="panel" id="p2">
+    <div class="box">
+      <div class="filters">
+        <select id="fPlatform"><option value="">全部平台</option></select>
+        <select id="fStatus">
+          <option value="">全部状态</option>
+          <option value="1">已付款</option>
+          <option value="8">已完成</option>
+          <option value="9">已退款/风控</option>
+        </select>
+        <input id="fStart" type="date" title="支付开始日期">
+        <input id="fEnd" type="date" title="支付结束日期">
+        <input id="fQ" placeholder="搜索订单号 / 标题 / 返利ID" style="width:220px">
+        <button id="searchBtn">查询</button>
+      </div>
+      <table>
+        <thead><tr><th>平台</th><th>订单号</th><th>标题</th><th>支付金额</th><th>佣金</th>
+        <th>返利</th><th>状态</th><th>结算</th><th>支付时间</th><th>返利ID</th></tr></thead>
+        <tbody id="orderRows"></tbody>
+      </table>
+      <div class="pager">
+        <button class="ghost" id="prevBtn">上一页</button>
+        <span id="pageInfo"></span>
+        <button class="ghost" id="nextBtn">下一页</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="p3">
+    <div class="box">
+      <h3>用户绑定与返利汇总（返利比例 <span id="rateTxt1" class="money"></span>）</h3>
+      <table>
+        <thead><tr><th>返利ID</th><th>绑定时间</th><th>订单数</th><th>订单佣金</th><th>已结算佣金</th><th>应返利金额</th></tr></thead>
+        <tbody id="bindRows"></tbody>
+      </table>
+      <div class="empty" id="bindEmpty" style="display:none">暂无用户绑定。用户在聊天里发送「绑定」即可获得返利ID。</div>
+    </div>
+  </div>
+
+  <div class="panel" id="p4">
+    <div class="grid2">
+      <div class="box">
+        <h3>红包/活动转链</h3>
+        <div class="filters">
+          <select id="cPlatform">
+            <option value="meituan">美团外卖红包</option>
+            <option value="eleme">饿了么/闪购红包</option>
+          </select>
+          <input id="cBind" placeholder="返利ID(可空)" style="width:130px">
+          <button id="convertBtn">生成推广链接</button>
+        </div>
+        <div class="result" id="cResult">生成结果将显示在这里…</div>
+      </div>
+      <div class="box">
+        <h3>商品转链</h3>
+        <div class="filters">
+          <select id="cPlatform2">
+            <option value="taobao">淘宝（淘口令/链接）</option>
+            <option value="douyin">抖音（链接/口令）</option>
+          </select>
+          <input id="cBind2" placeholder="返利ID(可空)" style="width:130px">
+        </div>
+        <div class="filters">
+          <input id="cContent" placeholder="粘贴淘口令 / 商品链接 / 口令" style="flex:1">
+          <button id="convert2Btn">转链</button>
+        </div>
+        <div class="result" id="cResult2">转链结果将显示在这里…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="p6">
+    <div class="box">
+      <h3>⏰ 定时推送任务</h3>
+      <div class="filters">
+        <select id="pushKind" title="推送内容">
+          <option value="meituan">🍔 美团红包</option>
+          <option value="eleme">🛵 闪购红包(饿了么)</option>
+          <option value="orders">📊 订单日报</option>
+        </select>
+        <select id="pushPlatform" title="发送平台（自动读取 AstrBot 平台实例）">
+          <option value="">加载平台中…</option>
+        </select>
+        <select id="pushTargetType" title="会话类型">
+          <option value="group">群聊</option>
+          <option value="private">私聊</option>
+        </select>
+        <input id="pushTarget" list="pushTargetList" placeholder="选择或手填群号/QQ号" style="width:210px">
+        <datalist id="pushTargetList"></datalist>
+      </div>
+      <div class="filters">
+        <input id="pushCron" placeholder="cron：分 时 日 月 周，如 30 8 * * *" style="width:210px">
+        <input id="pushTime" type="time" title="快捷时间">
+        <button class="ghost" id="cronQuick" title="按左侧时间生成「每天 HH:MM」的 cron">每天此时间</button>
+        <input id="pushBind" placeholder="返利ID(可空)" style="width:110px">
+        <button id="pushSaveBtn">保存任务</button>
+        <button class="ghost" id="pushCancelBtn" style="display:none">取消编辑</button>
+      </div>
+      <div class="muted" style="margin:6px 0 10px;font-size:12px;line-height:1.7">
+        cron 五个字段依次为 <b>分 时 日 月 周</b>（0-59 / 0-23 / 1-31 / 1-12 / 0-6，0=周日）。
+        支持 <code>*</code> 任意、<code>*/n</code> 步长、<code>a-b</code> 区间、<code>a,b,c</code> 列表。<br>
+        示例：<code>30 8 * * *</code> 每天08:30 ｜ <code>0 9 * * 1-5</code> 工作日09:00 ｜
+        <code>0 */2 * * *</code> 每2小时 ｜ <code>0 20 * * 5</code> 每周五20:00。
+        目标下拉会自动读取该平台的群/好友列表（仅 aiocqhttp/NapCat 等支持，其他平台请手填 ID）。
+      </div>
+      <table>
+        <thead><tr><th>定时 (cron)</th><th>说明</th><th>平台</th><th>目标</th><th>内容</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody id="pushRows"></tbody>
+      </table>
+      <div class="muted" id="pushLegacy" style="display:none;margin-top:10px;font-size:12px"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="p5">
+    <div class="box help">
+      <h3>📖 使用说明</h3>
+      <ul>
+        <li><b>数据来源</b>：折淘客开放平台 API。插件按配置间隔自动轮询美团订单、联盟全平台订单与淘宝订单明细并入库。</li>
+        <li><b>覆盖平台</b>：美团外卖/闪购、饿了么（淘宝闪购）、淘宝、抖音、京东、拼多多、唯品会等。</li>
+        <li><b>返利归因</b>：美团/饿了么走 <code>customer_id</code>，抖音走 <code>external_info</code>，淘宝走 <code>external_id</code>，与用户绑定 ID 一致即归档。</li>
+        <li><b>聊天指令</b>：<code>绑定</code>、<code>我的返利</code>、<code>查订单</code>、<code>美团红包</code>、<code>闪购红包</code>、<code>淘宝转链 内容</code>、<code>抖音转链 内容</code>、<code>搜抖音 关键词</code>、<code>同步订单</code>(管理员)。</li>
+        <li><b>限速提醒</b>：折淘客禁止多线程高频调用，轮询间隔请勿低于 2 分钟；淘宝订单接口单次最多查 3 小时。</li>
+        <li><b>前置条件</b>：需在折淘客后台完成淘宝账号授权（SID），且订单必须由折淘客转链接口产生。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+<script src="/api/plugin/page/bridge-sdk.js"></script>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
