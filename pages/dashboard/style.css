@@ -1,0 +1,68 @@
+/* 折淘客返利助手 · 插件页面样式（跟随 Dashboard 亮/暗主题） */
+:root, [data-theme="light"]{
+  --bg:#f5f7fa; --card:#ffffff; --border:#e4e9f0; --text:#1f2d3d; --muted:#7f8fa4;
+  --primary:#2f6fed; --primary-soft:#eaf1fe; --green:#0aa870; --orange:#f0883a;
+  --red:#e04b4b; --hover:#f8fafd; --thead:#f0f4f9; --result-bg:#f7f9fc;
+}
+[data-theme="dark"]{
+  --bg:#14161a; --card:#1e2128; --border:#2d323c; --text:#e0e3e8; --muted:#8b93a1;
+  --primary:#5b8cff; --primary-soft:#24304a; --green:#2ecc8f; --orange:#f5a05f;
+  --red:#ef6b6b; --hover:#232732; --thead:#232732; --result-bg:#181b21;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+.topbar{background:var(--card);border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.topbar h1{font-size:18px;font-weight:600}
+.topbar h1 span{color:var(--primary)}
+.topbar .actions{display:flex;gap:10px;align-items:center}
+button{border:none;border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer;background:var(--primary);color:#fff;transition:.15s}
+button:hover{filter:brightness(1.08)}
+button.ghost{background:var(--primary-soft);color:var(--primary)}
+button:disabled{opacity:.5;cursor:not-allowed}
+.wrap{width:calc(100% - 32px);margin:0 auto;padding:6px 0 50px}
+.tabs{display:flex;gap:6px;margin-bottom:16px;background:var(--card);padding:6px;border-radius:10px;border:1px solid var(--border);flex-wrap:wrap}
+.tab{padding:8px 16px;border-radius:8px;cursor:pointer;color:var(--muted);font-size:14px;user-select:none}
+.tab.active{background:var(--primary);color:#fff;font-weight:500}
+.panel{display:none}
+.panel.active{display:block}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:14px;margin-bottom:18px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
+.card .k{color:var(--muted);font-size:12px;margin-bottom:6px}
+.card .v{font-size:23px;font-weight:600}
+.card .v small{font-size:12px;color:var(--muted);font-weight:400}
+.card.green .v{color:var(--green)}
+.card.blue .v{color:var(--primary)}
+.card.orange .v{color:var(--orange)}
+.card.red .v{color:var(--red)}
+.box{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px;overflow-x:auto}
+.box h3{font-size:15px;margin-bottom:12px;font-weight:600;position:sticky;left:0}
+.filters{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px;align-items:center}
+select,input{padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--bg);color:var(--text);outline:none}
+select option{background:var(--card);color:var(--text)}
+input:focus,select:focus{border-color:var(--primary)}
+table{display:table;width:100%;border-collapse:collapse;font-size:13px}
+th{background:var(--thead);text-align:left;padding:10px 12px;color:var(--muted);font-weight:500;white-space:nowrap}
+td{padding:10px 12px;border-top:1px solid var(--border);white-space:nowrap}
+td:nth-child(3){max-width:280px;overflow:hidden;text-overflow:ellipsis}
+/* 少量列的窄表（统计/绑定等）列宽自动铺满整行 */
+table:not(:has(td:nth-child(4))) th:last-child,
+table:not(:has(td:nth-child(4))) td:last-child{width:40%}
+tr:hover td{background:var(--hover)}
+.tag{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px}
+.tag.ok{background:rgba(10,168,112,.14);color:var(--green)}
+.tag.paid{background:var(--primary-soft);color:var(--primary)}
+.tag.refund{background:rgba(224,75,75,.14);color:var(--red)}
+.pf{font-weight:600}
+.pf.美团{color:#ffbe00}.pf.淘宝{color:#ff5000}.pf.饿了么{color:#0085ff}.pf.抖音{color:var(--text)}
+.pager{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:12px;color:var(--muted);font-size:13px}
+.empty{text-align:center;color:var(--muted);padding:32px 0}
+.muted{color:var(--muted)}
+.money{font-weight:600;color:var(--orange)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:800px){.grid2{grid-template-columns:1fr}}
+.result{background:var(--result-bg);border:1px dashed var(--border);border-radius:8px;padding:12px;margin-top:12px;font-size:13px;word-break:break-all;white-space:pre-wrap;min-height:20px}
+.help li{margin:8px 0;line-height:1.7}
+.help code{background:var(--thead);padding:2px 6px;border-radius:4px;color:var(--primary);font-size:12px}
+#toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;opacity:0;transition:.3s;pointer-events:none;z-index:99}
+[data-theme="dark"] #toast{background:#e8eaee;color:#14161a}
+#toast.show{opacity:.92}
