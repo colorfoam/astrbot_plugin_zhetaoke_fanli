@@ -12,7 +12,7 @@
         "default": ""
       },
       "sid": {
-        "description": "淘客账号授权SID（美团/饿了么/抖音转链及淘宝订单查询共用）",
+        "description": "淘客账号授权SID（美团/饿了么转链及淘宝订单查询共用）",
         "type": "string",
         "obvious_hint": true,
         "hint": "zhetaoke.com 用户中心「淘宝授权」页面获取，如 16ztkzheta",
