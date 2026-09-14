@@ -29,7 +29,7 @@
     <div class="cards" id="statCards"></div>
     <div class="box">
       <h3>各平台订单分布</h3>
-      <table><thead><tr><th>平台</th><th>订单数</th><th>佣金合计</th></tr></thead>
+      <table><thead><tr><th><span class="pfw"><i>平</i><i>台</i></span></th><th>订单数</th><th>佣金合计</th></tr></thead>
       <tbody id="pfRows"></tbody></table>
     </div>
   </div>
@@ -59,11 +59,18 @@
         <button id="searchBtn">查询</button>
       </div>
       <table>
-        <thead><tr><th>平台</th><th>订单号</th><th>标题</th><th>支付金额</th><th>佣金</th>
+        <thead><tr><th><span class="pfw"><i>平</i><i>台</i></span></th><th>订单号</th><th>标题</th><th>支付金额</th><th>佣金</th>
         <th>返利</th><th>状态</th><th>结算</th><th>支付时间</th><th>返利ID</th></tr></thead>
         <tbody id="orderRows"></tbody>
       </table>
       <div class="pager">
+        <select id="pageSizeSel" title="每页显示条数（自动记忆）">
+          <option value="15">15 条/页</option>
+          <option value="20">20 条/页</option>
+          <option value="30">30 条/页</option>
+          <option value="50">50 条/页</option>
+          <option value="100">100 条/页</option>
+        </select>
         <button class="ghost" id="prevBtn">上一页</button>
         <span id="pageInfo"></span>
         <button class="ghost" id="nextBtn">下一页</button>
@@ -93,13 +100,18 @@
             <option value="jd_rp">🛍 京东外卖红包</option>
           </select>
           <input id="cBind" placeholder="返利ID(可空)" style="width:130px">
+          <button id="convertBtn">生成推广链接</button>
           <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;white-space:nowrap" title="生成的二维码图片链接较长，勾选后自动转成 t.cn 短链">
             <input type="checkbox" id="cShortQr">二维码转短链
           </label>
-          <button id="convertBtn">生成推广链接</button>
         </div>
         <div class="result" id="cResult">生成结果将显示在这里…</div>
         <style>
+          /* 结果区随内容自动展开，不滚动不压扁 */
+          #p4 .result { height:auto !important; min-height:64px;
+            max-height:none !important; overflow:visible !important; }
+          /* 两栏卡片等高对齐（随内容最高者，不撑满整屏） */
+          #p4 .grid2 { align-items:stretch; }
           .result .crow { display:flex; align-items:center; gap:8px; padding:4px 0; }
           .result .clabel { flex:0 0 auto; font-size:12px; opacity:.65; white-space:nowrap; }
           .result .cval { flex:1 1 auto; word-break:break-all; min-width:0; }
@@ -110,9 +122,11 @@
           .result .cok { font-weight:600; margin-bottom:4px; }
           .result .cerr { color:#d93026; font-weight:600; }
           .result .cwarn { color:#b45309; font-size:12px; padding:2px 0; }
-          .result .cqr { margin-top:8px; }
-          .result .cqr img { width:140px; height:140px; border-radius:8px;
-            border:1px solid rgba(128,128,128,.25); background:#fff; }
+          .result .cqr { margin-top:10px; }
+          /* 二维码图片撑满结果区宽度（上限 340px），高度等比自适应不压扁，点击可看原图 */
+          .result .cqr img { width:100%; max-width:340px; height:auto;
+            border-radius:8px; border:1px solid rgba(128,128,128,.25); background:#fff;
+            cursor:zoom-in; }
         </style>
       </div>
       <div class="box">
@@ -120,7 +134,6 @@
         <div class="filters">
           <select id="cPlatform2">
             <option value="taobao">淘宝（淘口令/链接）</option>
-            <option value="douyin">抖音（链接/口令）</option>
             <option value="jd">京东（商品/活动链接）</option>
           </select>
           <input id="cBind2" placeholder="返利ID(可空)" style="width:130px">
@@ -138,12 +151,6 @@
     <div class="box">
       <h3>⏰ 定时推送任务</h3>
       <div class="filters">
-        <select id="pushKind" title="推送内容">
-          <option value="meituan">🍔 美团红包</option>
-          <option value="eleme">🛵 闪购红包(饿了么)</option>
-          <option value="jd">🛍 京东红包(京东外卖)</option>
-          <option value="orders">📊 订单日报</option>
-        </select>
         <select id="pushPlatform" title="发送平台（自动读取 AstrBot 平台实例）">
           <option value="">加载平台中…</option>
         </select>
@@ -151,10 +158,21 @@
           <option value="group">群聊</option>
           <option value="private">私聊</option>
         </select>
-        <input id="pushTarget" list="pushTargetList" placeholder="选择或手填群号/QQ号" style="width:210px">
-        <datalist id="pushTargetList"></datalist>
+        <div class="sp-dd" id="pushDd" data-sel-val="" data-sel-ph="加载中…">
+          <button type="button" class="sp-dd-btn" id="pushDdBtn" title="从机器人或会话记录读取的列表">
+            <span class="sp-dd-txt">加载中…</span><span class="sp-dd-caret">▾</span>
+          </button>
+          <div class="sp-dd-panel" id="pushDdPanel" hidden></div>
+        </div>
+        <input id="pushTarget" placeholder="选择或手填群号/QQ号" style="width:150px">
       </div>
       <div class="filters">
+        <select id="pushKind" title="推送内容">
+          <option value="meituan">🍔 美团红包</option>
+          <option value="eleme">🛵 闪购红包(饿了么)</option>
+          <option value="jd">🛍 京东红包(京东外卖)</option>
+          <option value="orders">📊 订单日报</option>
+        </select>
         <input id="pushCron" placeholder="cron：分 时 日 月 周，如 30 8 * * *" style="width:210px">
         <input id="pushTime" type="time" title="快捷时间">
         <button class="ghost" id="cronQuick" title="按左侧时间生成「每天 HH:MM」的 cron">每天此时间</button>
@@ -186,7 +204,6 @@
       <div id="cfgBody">加载中…</div>
     </div>
     <div class="cfg-floatbar">
-      <span class="muted" id="cfgMsg" style="font-size:12px"></span>
       <button id="cfgSaveAll">保存设置</button>
     </div>
     <style>
@@ -224,8 +241,27 @@
       /* 会话选择器：平台 → 群聊/私聊 → 目标下拉/手填（同定时推送页） */
       .session-picker { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:8px; }
       .session-picker select { flex:0 0 auto; width:auto !important; min-width:110px; max-width:240px; }
-      .session-picker .sp-select { min-width:170px; }
       .session-picker .sp-target { flex:1 1 140px; min-width:130px; }
+      /* 自定义会话下拉：提示/错误收进弹出面板（点开才见，不弹 toast） */
+      .sp-dd { position:relative; flex:1 1 220px; min-width:190px; max-width:380px; }
+      .sp-dd-btn { display:flex; align-items:center; justify-content:space-between; gap:6px;
+        width:100%; padding:8px 10px; font-size:13px; color:inherit; cursor:pointer;
+        border:1px solid var(--border); border-radius:8px; background:var(--card); }
+      .sp-dd-txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .sp-dd-caret { flex:none; opacity:.55; font-size:11px; }
+      .sp-dd-panel { position:absolute; top:calc(100% + 4px); left:0; z-index:60;
+        width:max-content; max-width:min(480px, calc(100vw - 96px));
+        max-height:260px; overflow-y:auto; padding:6px;
+        background:var(--card); border:1px solid var(--border); border-radius:10px;
+        box-shadow:0 8px 24px rgba(15,23,42,.18); }
+      .sp-dd-head { font-size:12px; color:var(--muted); padding:4px 8px 6px; }
+      .sp-dd-item { display:block; width:100%; text-align:left; cursor:pointer; background:none;
+        border:none; border-radius:6px; padding:7px 9px; font-size:13px; color:inherit;
+        line-height:1.55; overflow-wrap:anywhere; word-break:break-all; }
+      .sp-dd-item:hover { background:rgba(59,130,246,.12); }
+      .sp-dd-empty { font-size:12px; color:var(--muted); padding:8px 10px; max-width:340px;
+        line-height:1.6; overflow-wrap:anywhere; word-break:break-all; }
+      .filters .sp-dd { flex:0 1 230px; min-width:180px; }
       /* 订单筛选 */
       .tsep { opacity:.4; margin:0 -2px; }
       /* 配置页：一板块一卡片（蓝色徽标标题），字段各自成小卡片、两列网格对齐 */
@@ -269,11 +305,6 @@
         background:transparent; border:none; padding:0; box-shadow:none; }
       #cfgSaveAll { padding:11px 30px; font-size:15px; border-radius:12px;
         box-shadow:0 6px 20px rgba(59,130,246,.42); }
-      /* 状态提示仅在出现文字时显示为小胶囊 */
-      #cfgMsg:empty { display:none; }
-      #cfgMsg { background:var(--bg-color,#fff); border:1px solid rgba(128,128,128,.2);
-        border-radius:10px; padding:6px 12px;
-        box-shadow:0 4px 14px rgba(0,0,0,.12); white-space:nowrap; }
     </style>
   </div>
 
@@ -282,8 +313,8 @@
       <h3>📖 使用说明</h3>
       <ul>
         <li><b>数据来源</b>：折淘客开放平台 API。插件按配置间隔自动轮询美团订单、联盟全平台订单与淘宝订单明细并入库。</li>
-        <li><b>覆盖平台</b>：美团外卖/闪购、饿了么（淘宝闪购）、淘宝、抖音、京东、拼多多、唯品会等。</li>
-        <li><b>返利归因</b>：美团/饿了么走 <code>customer_id</code>，抖音走 <code>external_info</code>，淘宝走 <code>external_id</code>，与用户绑定 ID 一致即归档。</li>
+        <li><b>覆盖平台</b>：美团外卖/闪购、饿了么（淘宝闪购）、淘宝、京东、拼多多、唯品会等（抖音转链/搜索因抖客平台关闭已下线）。</li>
+        <li><b>返利归因</b>：美团/饿了么走 <code>customer_id</code>，淘宝走 <code>external_id</code>，与用户绑定 ID 一致即归档。</li>
         <li><b>聊天指令</b>（与插件实际注册的指令保持同步）：<br><span id="helpCmds">加载中…</span></li>
         <li><b>限速提醒</b>：折淘客禁止多线程高频调用，轮询间隔请勿低于 2 分钟；淘宝订单接口单次最多查 3 小时。</li>
         <li><b>前置条件</b>：需在折淘客后台完成淘宝账号授权（SID），且订单必须由折淘客转链接口产生。</li>
