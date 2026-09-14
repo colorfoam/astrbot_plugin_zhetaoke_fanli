@@ -21,6 +21,7 @@
     <div class="tab" data-p="p3">👥 用户返利</div>
     <div class="tab" data-p="p4">🔗 转链工具</div>
     <div class="tab" data-p="p6">⏰ 定时推送</div>
+    <div class="tab" data-p="p7">⚙ 配置</div>
     <div class="tab" data-p="p5">📖 使用说明</div>
   </div>
 
@@ -43,9 +44,18 @@
           <option value="8">已完成</option>
           <option value="9">已退款/风控</option>
         </select>
-        <input id="fStart" type="date" title="支付开始日期">
-        <input id="fEnd" type="date" title="支付结束日期">
-        <input id="fQ" placeholder="搜索订单号 / 标题 / 返利ID" style="width:220px">
+        <select id="fQuick" title="快捷时间范围">
+          <option value="">时间：不限</option>
+          <option value="today">今天</option>
+          <option value="yesterday">昨天</option>
+          <option value="7d">近7天</option>
+          <option value="month">本月</option>
+          <option value="lastmonth">上月</option>
+        </select>
+        <input id="fStart" placeholder="开始日期" title="支持 2026-09-01、20260901、202609(整月)、2026(全年)">
+        <span class="tsep">→</span>
+        <input id="fEnd" placeholder="结束日期" title="支持 2026-09-30、20260930、202609(整月)、2026(全年)">
+        <input id="fQ" placeholder="搜索订单号 / 标题 / 返利ID" style="width:200px">
         <button id="searchBtn">查询</button>
       </div>
       <table>
@@ -80,11 +90,30 @@
           <select id="cPlatform">
             <option value="meituan">美团外卖红包</option>
             <option value="eleme">饿了么/闪购红包</option>
+            <option value="jd_rp">🛍 京东外卖红包</option>
           </select>
           <input id="cBind" placeholder="返利ID(可空)" style="width:130px">
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;white-space:nowrap" title="生成的二维码图片链接较长，勾选后自动转成 t.cn 短链">
+            <input type="checkbox" id="cShortQr">二维码转短链
+          </label>
           <button id="convertBtn">生成推广链接</button>
         </div>
         <div class="result" id="cResult">生成结果将显示在这里…</div>
+        <style>
+          .result .crow { display:flex; align-items:center; gap:8px; padding:4px 0; }
+          .result .clabel { flex:0 0 auto; font-size:12px; opacity:.65; white-space:nowrap; }
+          .result .cval { flex:1 1 auto; word-break:break-all; min-width:0; }
+          .result .cbtn { flex:0 0 auto; padding:2px 12px; font-size:12px; cursor:pointer;
+            border:1px solid var(--primary,#3b82f6); color:var(--primary,#3b82f6);
+            background:transparent; border-radius:6px; }
+          .result .cbtn:hover { background:var(--primary,#3b82f6); color:#fff; }
+          .result .cok { font-weight:600; margin-bottom:4px; }
+          .result .cerr { color:#d93026; font-weight:600; }
+          .result .cwarn { color:#b45309; font-size:12px; padding:2px 0; }
+          .result .cqr { margin-top:8px; }
+          .result .cqr img { width:140px; height:140px; border-radius:8px;
+            border:1px solid rgba(128,128,128,.25); background:#fff; }
+        </style>
       </div>
       <div class="box">
         <h3>商品转链</h3>
@@ -92,6 +121,7 @@
           <select id="cPlatform2">
             <option value="taobao">淘宝（淘口令/链接）</option>
             <option value="douyin">抖音（链接/口令）</option>
+            <option value="jd">京东（商品/活动链接）</option>
           </select>
           <input id="cBind2" placeholder="返利ID(可空)" style="width:130px">
         </div>
@@ -111,6 +141,7 @@
         <select id="pushKind" title="推送内容">
           <option value="meituan">🍔 美团红包</option>
           <option value="eleme">🛵 闪购红包(饿了么)</option>
+          <option value="jd">🛍 京东红包(京东外卖)</option>
           <option value="orders">📊 订单日报</option>
         </select>
         <select id="pushPlatform" title="发送平台（自动读取 AstrBot 平台实例）">
@@ -146,6 +177,106 @@
     </div>
   </div>
 
+  <div class="panel" id="p7">
+    <div class="box">
+      <h3>⚙ 插件配置</h3>
+      <div class="muted" style="font-size:12px;margin-bottom:10px">
+        直接在此修改并保存插件配置（等价于 AstrBot 插件配置页，保存后立即生效）。
+      </div>
+      <div id="cfgBody">加载中…</div>
+    </div>
+    <div class="cfg-floatbar">
+      <span class="muted" id="cfgMsg" style="font-size:12px"></span>
+      <button id="cfgSaveAll">保存设置</button>
+    </div>
+    <style>
+      /* 全局字体 */
+      body, .wrap, button, input, select, textarea {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+      }
+      #cfgBody input[type=text], #cfgBody input[type=password],
+      #cfgBody input[type=number], #cfgBody textarea, #cfgBody select {
+        background:transparent; color:inherit; font-size:13px;
+        border:1px solid rgba(128,128,128,.3); border-radius:8px;
+        padding:7px 10px; width:100%; box-sizing:border-box;
+        transition:border-color .15s, box-shadow .15s; }
+      #cfgBody input:focus, #cfgBody textarea:focus, #cfgBody select:focus {
+        outline:none; border-color:var(--primary,#3b82f6);
+        box-shadow:0 0 0 3px rgba(59,130,246,.15); }
+      .cfg-switch { display:inline-flex; align-items:center; gap:8px;
+        cursor:pointer; font-size:13px; padding:7px 0; }
+      .cfg-switch input { width:16px; height:16px; accent-color:var(--primary,#3b82f6); }
+      /* 标签编辑器 */
+      .tagbox { display:flex; flex-wrap:wrap; gap:6px; align-items:center;
+        border:1px solid rgba(128,128,128,.3); border-radius:8px; padding:6px 8px; }
+      .tagchip { display:inline-flex; align-items:center; gap:4px; font-size:12px;
+        background:var(--primary,#3b82f6); color:#fff; border-radius:6px;
+        padding:3px 8px; word-break:break-all; }
+      .tagchip a { cursor:pointer; opacity:.75; font-size:14px; line-height:1; }
+      .tagchip a:hover { opacity:1; }
+      .tagin { flex:1 1 120px !important; min-width:110px; border:none !important;
+        box-shadow:none !important; padding:4px !important; }
+      .tagbtn { font-size:12px; padding:4px 10px !important; cursor:pointer;
+        border:1px solid var(--primary,#3b82f6) !important; color:var(--primary,#3b82f6) !important;
+        background:transparent !important; border-radius:6px !important; white-space:nowrap; }
+      .tagquick { flex:0 1 180px !important; font-size:12px !important; }
+      /* 会话选择器：平台 → 群聊/私聊 → 目标下拉/手填（同定时推送页） */
+      .session-picker { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:8px; }
+      .session-picker select { flex:0 0 auto; width:auto !important; min-width:110px; max-width:240px; }
+      .session-picker .sp-select { min-width:170px; }
+      .session-picker .sp-target { flex:1 1 140px; min-width:130px; }
+      /* 订单筛选 */
+      .tsep { opacity:.4; margin:0 -2px; }
+      /* 配置页：一板块一卡片（蓝色徽标标题），字段各自成小卡片、两列网格对齐 */
+      .cfg-card { background:var(--card-bg, rgba(128,128,128,.04));
+        border:1px solid rgba(128,128,128,.18); border-radius:14px;
+        padding:0; margin-bottom:18px; overflow:hidden; }
+      .cfg-card-head { display:flex; align-items:center; gap:8px;
+        padding:16px 20px 12px; }
+      .cfg-badge { display:inline-block; background:var(--primary,#3b82f6); color:#fff;
+        border-radius:8px; padding:4px 14px; font-weight:600; font-size:13px;
+        line-height:1.5; box-shadow:0 2px 6px rgba(59,130,246,.25); }
+      .cfg-card-desc { font-weight:400; font-size:12px; opacity:.5; }
+      .cfg-card-body { padding:2px 20px 18px; display:grid;
+        grid-template-columns:1fr 1fr; gap:14px; }
+      .cfg-field { background:var(--field-bg, rgba(128,128,128,.03));
+        border:1px solid rgba(128,128,128,.16); border-radius:12px;
+        padding:12px 14px; min-width:0; }
+      .cfg-field.cfg-wide { grid-column:1 / -1; }
+      .cfg-label { font-size:13px; font-weight:600; margin-bottom:3px; line-height:1.5; }
+      .cfg-hint { font-size:11px; opacity:.5; margin:1px 0 6px; line-height:1.6; }
+      /* 密码字段：输入框 + 显示/隐藏按钮 */
+      .cfg-secret { display:flex; gap:8px; align-items:stretch; }
+      .cfg-secret input { flex:1 1 auto; }
+      .cfg-eye { flex:0 0 auto; white-space:nowrap; font-size:12px !important;
+        padding:6px 12px !important; cursor:pointer; border-radius:8px !important;
+        border:1px solid rgba(128,128,128,.3) !important; background:transparent !important;
+        color:inherit; opacity:.75; }
+      .cfg-eye:hover { opacity:1; }
+      /* 保存按钮：蓝色圆角主按钮，右下角浮动（仅配置页可见，面板隐藏时随父级隐藏） */
+      .cfg-save-group, #cfgSaveAll { background:var(--primary,#3b82f6); color:#fff; cursor:pointer;
+        border:none; border-radius:10px; padding:9px 26px;
+        font-size:14px; font-weight:600; letter-spacing:1px;
+        box-shadow:0 3px 10px rgba(59,130,246,.3);
+        transition:filter .15s, transform .1s; }
+      .cfg-save-group:hover, #cfgSaveAll:hover { filter:brightness(1.1); }
+      .cfg-save-group:active, #cfgSaveAll:active { transform:scale(.97); }
+      .cfg-save-group:disabled, #cfgSaveAll:disabled { opacity:.55; cursor:default; filter:none; transform:none; }
+      /* 浮动保存：只有一颗蓝色按钮，无白色底壳 */
+      .cfg-floatbar { position:fixed; right:28px; bottom:26px; z-index:99;
+        display:flex; align-items:center; gap:12px;
+        background:transparent; border:none; padding:0; box-shadow:none; }
+      #cfgSaveAll { padding:11px 30px; font-size:15px; border-radius:12px;
+        box-shadow:0 6px 20px rgba(59,130,246,.42); }
+      /* 状态提示仅在出现文字时显示为小胶囊 */
+      #cfgMsg:empty { display:none; }
+      #cfgMsg { background:var(--bg-color,#fff); border:1px solid rgba(128,128,128,.2);
+        border-radius:10px; padding:6px 12px;
+        box-shadow:0 4px 14px rgba(0,0,0,.12); white-space:nowrap; }
+    </style>
+  </div>
+
   <div class="panel" id="p5">
     <div class="box help">
       <h3>📖 使用说明</h3>
@@ -153,7 +284,7 @@
         <li><b>数据来源</b>：折淘客开放平台 API。插件按配置间隔自动轮询美团订单、联盟全平台订单与淘宝订单明细并入库。</li>
         <li><b>覆盖平台</b>：美团外卖/闪购、饿了么（淘宝闪购）、淘宝、抖音、京东、拼多多、唯品会等。</li>
         <li><b>返利归因</b>：美团/饿了么走 <code>customer_id</code>，抖音走 <code>external_info</code>，淘宝走 <code>external_id</code>，与用户绑定 ID 一致即归档。</li>
-        <li><b>聊天指令</b>：<code>绑定</code>、<code>我的返利</code>、<code>查订单</code>、<code>美团红包</code>、<code>闪购红包</code>、<code>淘宝转链 内容</code>、<code>抖音转链 内容</code>、<code>搜抖音 关键词</code>、<code>同步订单</code>(管理员)。</li>
+        <li><b>聊天指令</b>（与插件实际注册的指令保持同步）：<br><span id="helpCmds">加载中…</span></li>
         <li><b>限速提醒</b>：折淘客禁止多线程高频调用，轮询间隔请勿低于 2 分钟；淘宝订单接口单次最多查 3 小时。</li>
         <li><b>前置条件</b>：需在折淘客后台完成淘宝账号授权（SID），且订单必须由折淘客转链接口产生。</li>
       </ul>
