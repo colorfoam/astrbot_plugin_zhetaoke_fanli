@@ -23,6 +23,24 @@
         "type": "string",
         "hint": "mm_123_456_789 格式",
         "default": ""
+      },
+      "jd_union_id": {
+        "description": "京东联盟ID（京东转链必填）。京东联盟 union.jd.com 后台「推广管理-我的联盟信息」里的一串数字，需先完成折淘客授权",
+        "type": "string",
+        "hint": "纯数字，如 1000123456",
+        "default": ""
+      },
+      "jd_position_id": {
+        "description": "京东默认推广位ID（选填，纯数字）。用于京东订单归因：用户有绑定返利ID时优先用其返利ID，未绑定或非数字时用此默认值",
+        "type": "string",
+        "default": ""
+      },
+      "shorturl_api": {
+        "description": "自定义短链API（选填，填了优先于折淘客短链）",
+        "type": "string",
+        "obvious_hint": true,
+        "hint": "折淘客短链不可用时，填你自己的短链接口地址。支持占位符 {url}=原始链接、{url_enc}=URL编码后的链接；接口返回短链文本或JSON（自动识别 shorturl/short/url 等字段）均可。例：https://api.example.com/shorten?key=xxx&url={url_enc}",
+        "default": ""
       }
     }
   },
@@ -33,6 +51,8 @@
       "rebate_rate": {
         "description": "下级返利比例（0~1，0.3 表示把佣金的 30% 返给用户）",
         "type": "float",
+        "min": 0,
+        "max": 1,
         "default": 0.3
       },
       "meituan_act_id": {
@@ -51,6 +71,18 @@
         "type": "string",
         "options": ["tb", "wx"],
         "default": "tb"
+      },
+      "jd_act_url": {
+        "description": "京东红包（京东外卖）推广活动链接，「京东红包」指令与定时推送使用。可填京东联盟活动页链接（pro.m.jd.com/mall/active/...），留空用内置的京东外卖活动页。注意：京东侧接口不返回二维码图片，只返回推广短链",
+        "type": "string",
+        "hint": "留空=内置京东外卖活动页",
+        "default": ""
+      },
+      "jd_wechat_type": {
+        "description": "京东转链微信小程序短链类型（off=普通短链；1=京小街；2=京东购物）。选 1/2 时返回微信内可直接打开的小程序短链，适合微信渠道推广",
+        "type": "string",
+        "options": ["off", "1", "2"],
+        "default": "off"
       },
       "rp_text_style": {
         "description": "回复消息样式（plain=纯文本；markdown=始终 Markdown；auto=按渠道自动：仅下方「Markdown 渠道列表」里的平台发 Markdown，其余发纯文本。作用于红包文案、定时推送、查订单/我的返利。注意：aiocqhttp/NapCat 不渲染 Markdown，会原样显示 ** 号，QQ 建议用 auto 或 plain）",
@@ -71,8 +103,15 @@
       "rp_send_mode": {
         "description": "红包发送方式（美团红包/闪购红包）",
         "type": "string",
+        "options": ["both", "link", "image"],
         "default": "both",
         "hint": "both=文字(含链接)+二维码图片；link=仅文字链接；image=仅二维码图片"
+      },
+      "jd_chain_type": {
+        "description": "京东转链类型（1=长链，2=短链u.jd.com（默认，有效期60天），3=长链+短链）",
+        "type": "string",
+        "options": ["1", "2", "3"],
+        "default": "2"
       }
     }
   },
@@ -104,6 +143,33 @@
         "description": "同步淘宝/饿了么订单明细（open_dingdanchaxun2，需配置SID）",
         "type": "bool",
         "default": true
+      },
+      "poll_jd": {
+        "description": "额外同步京东订单明细（open_jing_union_openz_order_row_query，需填下方京东开放平台应用凭据；京东订单本身也会由「联盟全平台订单」带回，此开关用于补漏/更实时）",
+        "type": "bool",
+        "default": false
+      },
+      "jd_app_key": {
+        "description": "京东开放平台应用 AppKey（京东订单查询用，union.jd.com「开放平台-我的应用」获取）",
+        "type": "string",
+        "secret": true,
+        "default": ""
+      },
+      "jd_app_secret": {
+        "description": "京东开放平台应用 AppSecret（京东订单查询用）",
+        "type": "string",
+        "secret": true,
+        "default": ""
+      },
+      "jd_auth_key": {
+        "description": "推客授权 key（选填，工具商场景用；与 childUnionId 二选一，一般留空）",
+        "type": "string",
+        "default": ""
+      },
+      "jd_lookback_hours": {
+        "description": "京东订单每次同步回溯小时数（1~24，默认3；接口限制单次查询跨度≤1小时，会按1小时切片调用）",
+        "type": "int",
+        "default": 3
       },
       "push_enabled": {
         "description": "检测到新订单时推送提醒给管理员",
@@ -138,7 +204,7 @@
         "default": []
       },
       "push_tasks": {
-        "description": "旧版手动定时推送（保留兼容，推荐在 WebUI「插件页面」→「⏰ 定时推送」里可视化管理：cron 表达式定时、平台下拉选择、自动读取群/好友列表）。此处每行一条，格式：HH:MM|平台:群或私聊:ID|类型。类型：meituan=美团红包 / eleme=闪购红包 / orders=订单日报。示例：08:30|aiocqhttp:群:577085440|meituan。注意：qq_official 平台不支持主动发送，请用 NapCat(aiocqhttp) 等平台",
+        "description": "旧版手动定时推送（保留兼容，推荐在 WebUI「插件页面」→「⏰ 定时推送」里可视化管理：cron 表达式定时、平台下拉选择、自动读取群/好友列表）。此处每行一条，格式：HH:MM|平台:群或私聊:ID|类型。类型：meituan=美团红包 / eleme=闪购红包 / jd=京东红包 / orders=订单日报。示例：08:30|aiocqhttp:群:577085440|meituan。注意：qq_official 平台不支持主动发送，请用 NapCat(aiocqhttp) 等平台",
         "type": "list",
         "default": []
       },
