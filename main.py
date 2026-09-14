@@ -12,6 +12,7 @@ astrbot_plugin_zhetaoke_fanli — 折淘客全平台返利助手
 """
 
 import asyncio
+import calendar
 import hashlib
 import json
 import os
@@ -52,6 +53,20 @@ LIANMENG_PLATFORM = {
     "1": "美团", "2": "考拉", "3": "苏宁", "4": "淘宝", "5": "京东",
     "6": "拼多多", "7": "唯品会", "8": "饿了么", "9": "抖音",
 }
+# 京东订单 validCode → 本插件统一状态键（1已付款/8已完成/9已退款·风控）
+JD_VALID_STATUS = {"15": "1", "16": "1", "17": "8", "18": "8"}
+# 京东订单 validCode → 展示文案
+JD_STATUS_TEXT = {"15": "待付款", "16": "已付款", "17": "已完成", "18": "已结算"}
+# 京东无效单状态码说明（其余码一律按无效处理）
+JD_INVALID_CODE = {
+    "2": "无效-拆单", "3": "无效-取消", "4": "无效-京东帮帮主订单",
+    "5": "无效-账号异常", "6": "无效-赠品类目不返佣", "7": "无效-校园订单",
+    "8": "无效-企业订单", "9": "无效-团购订单", "11": "无效-乡村推广员下单",
+    "13": "无效-违规订单", "14": "无效-来源与备案网址不符",
+}
+# 京东红包默认活动：京东外卖 CPS 活动页（可直接在插件配置里换成你自己的活动链接）
+JD_DEFAULT_ACT_URL = ("https://pro.m.jd.com/mall/active/"
+                      "4CJH74pqm4snemxqc2TBUJpZe9JQ/index.html")
 
 # 数据目录：优先用 AstrBot 官方数据目录（绝对路径，不依赖启动时的工作目录），
 # 取不到时退回相对路径 data/<插件名>/
@@ -162,6 +177,43 @@ class ZtkClient:
         return await self._get("open_douyin_product_search.ashx", {
             "sid": sid, "title": quote(keyword, safe=""),
             "page": page, "page_size": page_size, "search_type": "3", "sort_type": "1",
+        })
+
+    async def jd_convert(self, material_id, union_id, position_id="",
+                         chain_type="2", sub_union_id="", signurl="0",
+                         wechat_type=""):
+        """京东转链API-新：商品/活动链接、短链（3.cn）、口令、SKU ID 均可转链。
+        positionId/subUnionId 用于返利归因（订单接口会透出）；
+        wechat_type：1=京小街、2=京东购物，返回微信小程序短链（可选）"""
+        params = {
+            "materialId": quote(str(material_id), safe=""),
+            "unionId": union_id,
+            "positionId": position_id,
+            "subUnionId": sub_union_id,
+            "chainType": chain_type,
+            "signurl": signurl,
+        }
+        if str(wechat_type or "").strip() in ("1", "2"):
+            params["weChatType"] = str(wechat_type).strip()
+        return await self._get("open_jing_union_open_promotion_byunionid_get.ashx",
+                               params)
+
+    async def shorturl(self, content: str, sid: str = "", engine: str = "sina") -> dict:
+        """短链接生成：sina(t.cn)/baidu(dwz.cn)。content 为需缩短的原始 URL（需 urlencode）。
+        接口要求 appkey + sid（淘客账号授权ID）+ content"""
+        path = ("open_shorturl_sina_get.ashx" if engine == "sina"
+                else "open_shorturl_baidu_get.ashx")
+        return await self._get(path, {"content": content, "sid": sid})
+
+    async def jd_orders(self, jd_app_key, jd_app_secret, page=1, page_size=100,
+                        query_type="1", start_time="", end_time="", key="",
+                        child_union_id=""):
+        """京东订单查询（需京东开放平台应用 appkey/appsecret，时间跨度≤1小时）"""
+        return await self._get("open_jing_union_openz_order_row_query.ashx", {
+            "jd_app_key": jd_app_key, "jd_app_secret": jd_app_secret,
+            "key": key, "childUnionId": child_union_id,
+            "pageIndex": page, "pageSize": page_size, "type": query_type,
+            "startTime": start_time, "endTime": end_time, "fields": "goodsInfo",
         })
 
     # ---------- 订单 ----------
@@ -392,6 +444,49 @@ def _norm_customer(r: dict) -> str:
     return ""
 
 
+def _jd_rows(data: dict) -> list:
+    """解析京东订单查询返回：queryResult 为（可能二次编码的）JSON，
+    orderRowResp 可能是单个对象或数组"""
+    node = data.get("jd_union_open_order_row_query_response") or {}
+    qr = node.get("queryResult")
+    if isinstance(qr, str):
+        try:
+            qr = json.loads(qr)
+        except (ValueError, TypeError):
+            qr = {}
+    rows = ((qr or {}).get("data") or {}).get("orderRowResp") or []
+    if isinstance(rows, dict):
+        rows = [rows]
+    return OrderStore._normalize_rows(rows)
+
+
+def _jd_norm_rows(rows) -> list:
+    """把京东订单字段映射为本插件统一结构，复用订单入库逻辑。
+    归因字段：positionId（自定义推广位）优先，其次 subUnionId"""
+    out = []
+    for r in OrderStore._normalize_rows(rows):
+        code = str(r.get("validCode") or "").strip()
+        status = JD_VALID_STATUS.get(code) or ("9" if code else "")
+        pos = str(r.get("positionId") or "").strip()
+        out.append({
+            **r,
+            "orderid": r.get("orderId") or r.get("id") or "",
+            "smstitle": r.get("skuName") or "",
+            "payprice": r.get("estimateCosPrice") or r.get("price") or 0,
+            "profit": r.get("estimateFee") or 0,
+            "status": status,
+            "status_text": (JD_INVALID_CODE.get(code) or JD_STATUS_TEXT.get(code)
+                            or ORDER_STATUS.get(status, "")),
+            "type": "京东",
+            "paytime": r.get("orderTime") or "",
+            "update_time": r.get("modifyTime") or "",
+            "is_jiesuan": "1" if code == "18" else "0",
+            "jiesuan_profit": r.get("estimateFee") if code == "18" else 0,
+            "customer_id_ztk": pos if pos not in ("", "0") else str(r.get("subUnionId") or ""),
+        })
+    return out
+
+
 # ---------- cron（5 字段：分 时 日 月 周） ----------
 def _parse_cron_field(field: str, lo: int, hi: int) -> Optional[set]:
     """解析单个 cron 字段，返回取值集合；None 表示 *（任意值）。
@@ -489,6 +584,24 @@ def _kind_name(kind: str) -> str:
         kind, kind)
 
 
+# 聊天指令总表（与下方 @filter.command 注册保持同步，使用说明页动态读取展示）
+CHAT_COMMANDS = [
+    {"cmd": "ztk帮助", "alias": ["返利帮助"], "desc": "查看全部指令", "admin": False},
+    {"cmd": "绑定", "alias": [], "desc": "获取返利ID，之后订单自动归因", "admin": False},
+    {"cmd": "我的返利", "alias": [], "desc": "查询自己的绑定与返利汇总", "admin": False},
+    {"cmd": "查订单", "alias": [], "desc": "查询自己的最近订单", "admin": False},
+    {"cmd": "美团红包", "alias": [], "desc": "获取美团外卖红包", "admin": False},
+    {"cmd": "闪购红包", "alias": ["饿了么红包"], "desc": "获取饿了么/淘宝闪购红包", "admin": False},
+    {"cmd": "京东红包", "alias": ["京东外卖红包", "京东外卖"], "desc": "获取京东外卖红包", "admin": False},
+    {"cmd": "淘宝转链", "alias": [], "desc": "淘宝转链 内容", "admin": False},
+    {"cmd": "抖音转链", "alias": [], "desc": "抖音转链 内容", "admin": False},
+    {"cmd": "京东转链", "alias": ["京东"], "desc": "京东转链 内容", "admin": False},
+    {"cmd": "搜抖音", "alias": [], "desc": "搜抖音 关键词", "admin": False},
+    {"cmd": "回溯订单", "alias": [], "desc": "手动回拉历史订单", "admin": True},
+    {"cmd": "同步订单", "alias": [], "desc": "手动同步一次订单", "admin": True},
+]
+
+
 @register(
     PLUGIN_NAME,
     "Cupid",
@@ -529,6 +642,10 @@ class ZheTaoKeFanliPlugin(Star):
             self.context.register_web_api(f"{prefix}/orders", self._api_orders, ["GET"], "订单查询")
             self.context.register_web_api(f"{prefix}/bindings", self._api_bindings, ["GET"], "用户绑定与返利")
             self.context.register_web_api(f"{prefix}/convert", self._api_convert, ["GET"], "转链工具")
+            self.context.register_web_api(f"{prefix}/shorten", self._api_shorten, ["GET"], "短链接生成")
+            self.context.register_web_api(f"{prefix}/commands", self._api_commands, ["GET"], "聊天指令列表")
+            self.context.register_web_api(f"{prefix}/config", self._api_config, ["GET"], "读取配置")
+            self.context.register_web_api(f"{prefix}/config/save", self._api_config_save, ["GET"], "保存配置")
             self.context.register_web_api(f"{prefix}/sync", self._api_sync,
                                           ["GET", "POST"], "手动同步订单")
             self.context.register_web_api(f"{prefix}/push/tasks", self._api_push_tasks,
@@ -561,7 +678,9 @@ class ZheTaoKeFanliPlugin(Star):
             page, page_size = 1, 20
         total, rows = self.store.query_orders(
             platform=q.get("platform", ""), status=q.get("status", ""),
-            q=q.get("q", ""), start=q.get("start", ""), end=q.get("end", ""),
+            q=q.get("q", ""),
+            start=self._norm_time_arg(q.get("start", "")),
+            end=self._norm_time_arg(q.get("end", ""), is_end=True),
             page=page, page_size=page_size)
         rate = self._rebate_rate()
         for r in rows:
@@ -582,6 +701,159 @@ class ZheTaoKeFanliPlugin(Star):
             web_request.query.get("content", "").strip(),
             web_request.query.get("bind_id", ""))
         return json_response(res)
+
+    async def _api_shorten(self):
+        res = await self._shorten(
+            web_request.query.get("url", ""),
+            web_request.query.get("engine", "sina"))
+        return json_response(res)
+
+    async def _api_commands(self):
+        """使用说明页动态读取的聊天指令列表（与实际注册指令同源）"""
+        return json_response({"commands": CHAT_COMMANDS})
+
+    # ---------- 配置读写（内置配置页） ----------
+    @staticmethod
+    def _norm_time_arg(val: str, is_end: bool = False) -> str:
+        """订单时间筛选智能解析：支持 2026-09-14 / 20260914 / 202609(整月) /
+        2026-9(整月) / 2026(全年) / 含时分秒的完整时间；返回可做字符串比较的
+        'YYYY-MM-DD HH:MM:SS'。start 取当期起点，end 取当期终点。"""
+        s = str(val or "").strip()
+        if not s:
+            return ""
+        # 拆出时分秒部分（如 2026-09-14 10:00:00），日期部分解析成功后原样保留
+        time_part = ""
+        m = re.search(r"[ T](\d{1,2}:\d{2}(:\d{2})?)?$", s)
+        if m:
+            time_part = m.group(0).strip()
+            s = s[:m.start()]
+        d = (s.replace("/", "-").replace("年", "-").replace("月", "-")
+             .replace("日", "").replace(".", "-").strip().strip("-"))
+        parts = [p for p in d.split("-") if p != ""]
+        if not parts or not all(p.isdigit() for p in parts):
+            return ""
+        try:
+            if len(parts) == 1 and len(parts[0]) == 8:
+                parts = [parts[0][:4], parts[0][4:6], parts[0][6:]]
+            elif len(parts) == 1 and len(parts[0]) == 6:
+                parts = [parts[0][:4], parts[0][4:]]
+            y = int(parts[0])
+            if not 2015 <= y <= 2100:                        # 年份合理范围
+                return ""
+            if len(parts) == 1:                              # 年 → 全年
+                return (f"{y}-12-31 23:59:59" if is_end
+                        else f"{y:04d}-01-01 00:00:00")
+            m = int(parts[1])
+            if not 1 <= m <= 12:
+                return ""
+            last = calendar.monthrange(y, m)[1]
+            if len(parts) == 2:                              # 年月 → 整月
+                return (f"{y:04d}-{m:02d}-{last:02d} 23:59:59" if is_end
+                        else f"{y:04d}-{m:02d}-01 00:00:00")
+            dd = int(parts[2])                               # 年月日 → 整天
+            if not 1 <= dd <= last:
+                return ""
+            if time_part:                                    # 带时分秒 → 原样保留
+                return f"{y:04d}-{m:02d}-{dd:02d} {time_part}"
+            return (f"{y:04d}-{m:02d}-{dd:02d} 23:59:59" if is_end
+                    else f"{y:04d}-{m:02d}-{dd:02d} 00:00:00")
+        except (ValueError, TypeError):
+            pass
+        return ""
+
+    def _load_schema(self) -> dict:
+        try:
+            path = os.path.join(os.path.dirname(__file__), "_conf_schema.json")
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _schema_items(self) -> dict:
+        """展平 schema → {key: item_schema}"""
+        out = {}
+        for g in self._load_schema().values():
+            for k, item in ((g or {}).get("items") or {}).items():
+                out[k] = item or {}
+        return out
+
+    def _cfg_holder(self, key):
+        """定位 key 实际存放的 dict（顶层或分组），没有则返回 None"""
+        if key in self.config:
+            return self.config
+        for v in self.config.values():
+            if isinstance(v, dict) and key in v:
+                return v
+        return None
+
+    def _coerce_cfg(self, key: str, item: dict, raw):
+        t = str(item.get("type") or "string").lower()
+        s = "" if raw is None else str(raw)
+        if t == "bool":
+            return s.strip().lower() in ("1", "true", "on", "yes", "是")
+        if t in ("int", "float"):
+            s = s.strip()
+            if s == "":
+                return item.get("default", 0)
+            try:
+                num = int(float(s)) if t == "int" else float(s)
+            except (TypeError, ValueError):
+                raise ValueError(f"「{item.get('description') or key}」需填写数字")
+            lo, hi = item.get("min"), item.get("max")
+            desc = item.get("description") or key
+            if lo is not None and num < lo:
+                raise ValueError(f"「{desc}」不能小于 {lo}")
+            if hi is not None and num > hi:
+                raise ValueError(f"「{desc}」不能大于 {hi}")
+            return num
+        if t == "list":
+            if isinstance(raw, list):
+                return [str(x).strip() for x in raw if str(x).strip()]
+            parts = re.split(r"[\n,，;；]", s)
+            return [p.strip() for p in parts if p.strip()]
+        return s
+
+    async def _api_config(self):
+        return json_response(self._config_data())
+
+    def _config_data(self) -> dict:
+        schema = self._load_schema()
+        values = {}
+        for g in schema.values():
+            for k, item in ((g or {}).get("items") or {}).items():
+                values[k] = self._cfg(k, (item or {}).get("default", ""))
+        return {"schema": schema, "values": values}
+
+    async def _api_config_save(self):
+        try:
+            payload = json.loads(web_request.query.get("data", "") or "{}")
+        except (ValueError, TypeError):
+            return json_response({"error": "data 参数不是合法 JSON"})
+        if not isinstance(payload, dict):
+            return json_response({"error": "data 参数格式错误"})
+        items = self._schema_items()
+        saved = 0
+        for k, v in payload.items():
+            item = items.get(k)
+            if item is None:
+                continue  # 未知配置项忽略，防止误写
+            try:
+                val = self._coerce_cfg(k, item, v)
+            except ValueError as e:
+                return json_response({"error": str(e)})
+            holder = self._cfg_holder(k)
+            if holder is None:
+                self.config[k] = val
+            else:
+                holder[k] = val
+            saved += 1
+        save = getattr(self.config, "save_config", None)
+        if callable(save):
+            try:
+                save()
+            except Exception as e:
+                return json_response({"error": f"保存失败: {e}"})
+        return json_response({"ok": True, "saved": saved})
 
     async def _api_sync(self):
         result = await self.sync_orders()
@@ -625,8 +897,8 @@ class ZheTaoKeFanliPlugin(Star):
             return json_response({"error": "会话类型须为 group 或 private"})
         if not target_id:
             return json_response({"error": "请填写或选择推送目标 ID"})
-        if kind not in ("meituan", "eleme", "orders"):
-            return json_response({"error": "推送类型须为 meituan/eleme/orders"})
+        if kind not in ("meituan", "eleme", "jd", "orders"):
+            return json_response({"error": "推送类型须为 meituan/eleme/jd/orders"})
         if bind_id and not re.fullmatch(r"\d{1,11}", bind_id):
             return json_response({"error": "返利ID须为 11 位以内纯数字"})
         raw_enabled = str(data.get("enabled") or "").strip().lower()
@@ -812,6 +1084,71 @@ class ZheTaoKeFanliPlugin(Star):
     def _pid(self):
         return self._cfg("pid", "")
 
+    def _jd_union_id(self):
+        return str(self._cfg("jd_union_id", "") or "").strip()
+
+    def _jd_attribution(self, bind_id: str = "") -> tuple:
+        """京东返利归因：返回 (positionId, subUnionId)。
+        positionId 只接受数字（自定义推广位，订单里会透出），
+        所以纯数字的返利ID直接用作推广位；非数字时回退到配置的默认推广位，
+        同时把返利ID放进 subUnionId（支持字母/数字/下划线，订单里同样透出）"""
+        bid = str(bind_id or "").strip()[:80]
+        pos = bid if (bid.isdigit() and len(bid) <= 11) else \
+            str(self._cfg("jd_position_id", "") or "").strip()
+        return pos, bid
+
+    @staticmethod
+    def _jd_parse(res: dict) -> dict:
+        """解析京东转链返回：官方结果在 *_response.result 里且是二次编码的 JSON 字符串"""
+        node = res.get("jd_union_open_promotion_byunionid_get_response") or {}
+        result = node.get("result")
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except (ValueError, TypeError):
+                result = None
+        result = result if isinstance(result, dict) else {}
+        data = result.get("data") or {}
+        if not isinstance(data, dict):
+            data = {}
+        return {
+            "link": str(data.get("shortURL") or data.get("clickURL") or ""),
+            "long_link": str(data.get("clickURL") or ""),
+            "code": result.get("code") or node.get("code"),
+            "message": result.get("message") or "",
+        }
+
+    def _jd_act_url(self) -> str:
+        """京东红包/活动推广链接（京东外卖活动等），未配置时用内置默认活动"""
+        return str(self._cfg("jd_act_url", "") or "").strip() or JD_DEFAULT_ACT_URL
+
+    def _jd_wechat_type(self) -> str:
+        """京东转链的微信小程序短链类型：''=不处理，1=京小街，2=京东购物"""
+        m = str(self._cfg("jd_wechat_type", "off") or "off").strip().lower()
+        return m if m in ("1", "2") else ""
+
+    async def _jd_rp(self, bind_id: str = "", material_id: str = "") -> dict:
+        """京东红包（活动转链）：把京东活动链接转成带返利归因的推广链接。
+        京东侧没有小程序码/二维码出图能力，返回的是可点击的推广短链。"""
+        if not self._jd_union_id():
+            return {"ok": False, "error": "未配置京东联盟ID（插件配置「折淘客凭据」→ 京东联盟ID）"}
+        material = str(material_id or "").strip() or self._jd_act_url()
+        if not material:
+            return {"ok": False, "error": "未配置京东红包活动链接（jd_act_url）"}
+        pos, sub = self._jd_attribution(bind_id)
+        try:
+            res = await self.client.jd_convert(
+                material, self._jd_union_id(), pos, sub_union_id=sub,
+                wechat_type=self._jd_wechat_type())
+        except Exception as e:
+            return {"ok": False, "error": f"转链出错: {e}"}
+        d = self._jd_parse(res)
+        if d.get("link"):
+            return {"ok": True, "link": d["link"],
+                    "long_link": d.get("long_link") or ""}
+        return {"ok": False,
+                "error": d.get("message") or f"转链失败（{d.get('code') or '未知错误'}）"}
+
     def _rebate_rate(self):
         try:
             return float(self._cfg("rebate_rate", 0.3))
@@ -939,12 +1276,46 @@ class ZheTaoKeFanliPlugin(Star):
                 except Exception as e:
                     logger.warning(f"[ztk] 淘宝订单同步失败: {e}")
 
+            if self._cfg("poll_jd", False):
+                try:
+                    jd_cnt = await self._sync_jd_orders()
+                    if jd_cnt:
+                        result["京东"] = result.get("京东", 0) + jd_cnt
+                except Exception as e:
+                    logger.warning(f"[ztk] 京东订单同步失败: {e}")
+
             new_total = sum(result.values())
             if new_total and self._cfg("push_enabled", False):
                 await self._push_new_orders(new_total)
             if new_total:
                 logger.info(f"[ztk] 订单同步完成，新增 {new_total} 条: {result}")
             return result
+
+    async def _sync_jd_orders(self, hours: int = 0) -> int:
+        """京东订单查询（需京东开放平台应用 appkey/appsecret）。
+        接口限制单次时间跨度≤1小时，按 1 小时切片回溯；返回新入库条数"""
+        app_key = str(self._cfg("jd_app_key", "") or "").strip()
+        app_secret = str(self._cfg("jd_app_secret", "") or "").strip()
+        if not (app_key and app_secret):
+            logger.info("[ztk] 已开启京东订单同步，但未配置京东开放平台应用的 appkey/appsecret，跳过")
+            return 0
+        try:
+            hours = int(hours or self._cfg("jd_lookback_hours", 3) or 3)
+        except (TypeError, ValueError):
+            hours = 3
+        hours = max(1, min(hours, 24))
+        auth_key = str(self._cfg("jd_auth_key", "") or "").strip()
+        total = 0
+        end_dt = datetime.now().replace(microsecond=0)
+        for i in range(hours):
+            e = end_dt - timedelta(hours=i)
+            s = e - timedelta(hours=1)
+            data = await self.client.jd_orders(
+                app_key, app_secret, page=1, page_size=100, query_type="3",
+                start_time=s.strftime("%Y-%m-%d %H:%M:%S"),
+                end_time=e.strftime("%Y-%m-%d %H:%M:%S"), key=auth_key)
+            total += self.store.upsert_orders("京东", _jd_norm_rows(_jd_rows(data)))
+        return total
 
     async def _push_new_orders(self, cnt: int):
         for admin in (self._cfg("admin_ids") or []):
@@ -966,6 +1337,9 @@ class ZheTaoKeFanliPlugin(Star):
         app.router.add_get("/api/orders", self._web_orders)
         app.router.add_get("/api/bindings", self._web_bindings)
         app.router.add_get("/api/convert", self._web_convert)
+        app.router.add_get("/api/shorten", self._web_shorten)
+        app.router.add_get("/api/config", self._web_config)
+        app.router.add_get("/api/config/save", self._web_config_save)
         app.router.add_post("/api/sync", self._web_sync)
         self.web_runner = web.AppRunner(app)
         await self.web_runner.setup()
@@ -1001,7 +1375,9 @@ class ZheTaoKeFanliPlugin(Star):
         q = request.query
         total, rows = self.store.query_orders(
             platform=q.get("platform", ""), status=q.get("status", ""),
-            q=q.get("q", ""), start=q.get("start", ""), end=q.get("end", ""),
+            q=q.get("q", ""),
+            start=self._norm_time_arg(q.get("start", "")),
+            end=self._norm_time_arg(q.get("end", ""), is_end=True),
             page=max(1, int(q.get("page", 1) or 1)),
             page_size=min(100, max(1, int(q.get("page_size", 20) or 20))))
         rate = self._rebate_rate()
@@ -1019,9 +1395,78 @@ class ZheTaoKeFanliPlugin(Star):
                          "rebate": round(info["total"] * self._rebate_rate(), 2)})
         return self._json({"rows": rows, "rebate_rate": self._rebate_rate()})
 
+    async def _custom_shorturl(self, url: str) -> dict:
+        """自定义短链 API：配置里填模板地址，{url}=原文 {url_enc}=URL编码。
+        返回文本或 JSON（自动识别 shorturl/short/url/tinyurl 等字段）"""
+        tpl = str(self._cfg("shorturl_api", "") or "").strip()
+        if not tpl:
+            return {}
+        api = tpl.replace("{url_enc}", quote(url, safe="")).replace("{url}", url)
+        try:
+            async with aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=15)) as ses:
+                async with ses.get(api) as resp:
+                    text = (await resp.text()).strip()
+        except Exception as e:
+            return {"ok": False, "error": f"自定义短链API请求失败: {e}"}
+        if resp.status != 200 or not text:
+            return {"ok": False, "error": f"自定义短链API返回异常(HTTP {resp.status})"}
+        short = ""
+        try:
+            data = json.loads(text)
+            for k in ("shorturl", "short_url", "shortUrl", "short", "url",
+                      "tinyurl", "data"):
+                v = data.get(k) if isinstance(data, dict) else None
+                if isinstance(v, str) and v.strip():
+                    short = v.strip()
+                    break
+        except (ValueError, TypeError):
+            short = text.split()[0] if text else ""
+        if short and re.match(r"^https?://", short, re.I):
+            return {"ok": True, "short": short, "engine": "custom", "raw": text[:300]}
+        return {"ok": False, "error": f"自定义短链API未返回有效链接: {text[:120]}"}
+
+    async def _shorten(self, url: str, engine: str = "sina") -> dict:
+        """短链接生成：优先自定义API(若配置 shorturl_api)，否则折淘客 sina/baidu"""
+        url = (url or "").strip()
+        if not re.match(r"^https?://", url, re.I):
+            return {"error": "请传入 http(s) 开头的链接"}
+        # 用户配置了自定义短链 API → 优先使用，失败回退折淘客
+        if str(self._cfg("shorturl_api", "") or "").strip():
+            res = await self._custom_shorturl(url)
+            if res.get("ok"):
+                return res
+            err_custom = res.get("error", "")
+        else:
+            err_custom = ""
+        engine = engine if engine in ("sina", "baidu") else "sina"
+        if not self._sid():
+            tip = f"（自定义短链API错误: {err_custom}）" if err_custom else ""
+            return {"error": f"短链接口需要淘客账号授权SID{tip}，请在插件配置「折淘客凭据 → 淘客账号授权SID」填写，或在「自定义短链API」填入你自己的短链接口"}
+        try:
+            res = await self.client.shorturl(url, self._sid(), engine)
+        except Exception as e:
+            err = f"短链生成出错: {e}"
+            if err_custom:
+                err += f"（自定义短链API错误: {err_custom}）"
+            return {"ok": False, "error": err}
+        short = str(res.get("shorturl") or "").strip()
+        if short:
+            return {"ok": True, "short": short, "engine": engine, "raw": res}
+        err = (res.get("content") or res.get("error_response")
+               or json.dumps(res, ensure_ascii=False))
+        msg = f"短链生成失败: {err}"
+        if err_custom:
+            msg += f"（自定义短链API错误: {err_custom}）"
+        else:
+            msg += "。折淘客短链不可用时，可在插件配置「折淘客凭据 → 自定义短链API」填入你自己的短链接口"
+        return {"ok": False, "error": msg}
+
     async def _do_convert(self, platform: str, content: str, bind_id: str = "") -> dict:
         """转链核心逻辑，独立 WebUI 与插件页面共用"""
-        if not content:
+        content = (content or "").strip()
+        # 红包/活动转链(meituan/eleme/jd_rp)不需要内容；商品转链才必须传内容
+        if not content and platform in ("taobao", "douyin", "jd"):
             return {"error": "content 不能为空"}
         try:
             if platform == "meituan":
@@ -1052,6 +1497,21 @@ class ZheTaoKeFanliPlugin(Star):
                 return {"ok": res.get("code") == 10000,
                         "link": d.get("dy_zlink") or d.get("share_link"),
                         "password": d.get("dy_password"), "raw": d}
+            if platform == "jd_rp":
+                # 京东红包（活动转链）：content 可选，留空用内置京东外卖活动页
+                res = await self._jd_rp(bind_id, content)
+                return {"ok": res.get("ok", False),
+                        "link": res.get("link"), "error": res.get("error"),
+                        "raw": res}
+            if platform == "jd":
+                if not self._jd_union_id():
+                    return {"error": "未配置京东联盟ID（jd_union_id，京东转链必填）"}
+                pos, sub = self._jd_attribution(bind_id)
+                res = await self.client.jd_convert(
+                    content, self._jd_union_id(), pos,
+                    str(self._cfg("jd_chain_type", "2") or "2"), sub)
+                parsed = self._jd_parse(res)
+                return {"ok": bool(parsed["link"]), **parsed, "raw": res}
             return {"error": "未知平台"}
         except Exception as e:
             return {"ok": False, "error": str(e)}
@@ -1065,6 +1525,34 @@ class ZheTaoKeFanliPlugin(Star):
             request.query.get("content", "").strip(),
             request.query.get("bind_id", ""))
         return self._json(res)
+
+    async def _web_shorten(self, request):
+        """独立 WebUI 短链接生成"""
+        if not self._check_web_auth(request):
+            return self._json({"error": "未授权"}, 401)
+        res = await self._shorten(
+            request.query.get("url", ""),
+            request.query.get("engine", "sina"))
+        return self._json(res)
+
+    async def _web_config(self, request):
+        """独立 WebUI 读取配置"""
+        if not self._check_web_auth(request):
+            return self._json({"error": "未授权"}, 401)
+        return self._json(self._config_data())
+
+    async def _web_config_save(self, request):
+        """独立 WebUI 保存配置（data=JSON 字符串）"""
+        if not self._check_web_auth(request):
+            return self._json({"error": "未授权"}, 401)
+        # 复用保存逻辑：临时借用 web_request 上下文
+        global web_request
+        old = web_request
+        web_request = request
+        try:
+            return self._json(await self._api_config_save())
+        finally:
+            web_request = old
 
     async def _web_sync(self, request):
         if not self._check_web_auth(request):
@@ -1093,8 +1581,10 @@ class ZheTaoKeFanliPlugin(Star):
             "我的返利 — 查询我的订单与预估返利\n"
             "美团红包 — 获取美团外卖红包链接\n"
             "闪购红包 — 获取饿了么/淘宝闪购红包链接\n"
+            "京东红包 [活动链接] — 获取京东外卖红包推广链接(不填用默认活动)\n"
             "淘宝转链 [内容] — 淘宝商品高佣转链(淘口令/链接)\n"
             "抖音转链 [链接/口令] — 抖音商品转链\n"
+            "京东转链 [链接/口令] — 京东商品/活动(含京东外卖)转链\n"
             "搜抖音 [关键词] — 抖音选品搜索\n"
             "查订单 — 查看自己最近的订单\n"
             "同步订单 — 管理员手动同步(仅管理员)\n"
@@ -1250,6 +1740,30 @@ class ZheTaoKeFanliPlugin(Star):
                 yield event.plain_result(f"转链失败: {res}")
         except Exception as e:
             yield event.plain_result(f"转链出错: {e}")
+
+    @filter.command("京东红包", alias={"京东外卖红包", "京东外卖"})
+    async def cmd_jd_redpacket(self, event: AstrMessageEvent, act_url: str = ""):
+        """京东红包/京东外卖活动推广链接（带个人返利归因）。
+        京东侧无小程序码出图能力，返回推广短链文字；可附带活动链接自定义活动"""
+
+        if self._chat_blocked(event):
+            return
+        bind_id = self._get_bind_or_auto(event)
+        d = await self._jd_rp(bind_id, act_url)
+        if not d.get("ok"):
+            yield event.plain_result(f"转链失败: {d.get('error')}")
+            return
+        extra = ("京东外卖天天领红包，先领券再下单更划算"
+                 if str(act_url or "").strip() == "" else "")
+        mode = self._redpacket_mode()
+        async for msg in self._reply_redpacket(
+                event,
+                f"🛍 京东外卖红包来啦~（你的返利ID: {bind_id}）",
+                str(d.get("link") or ""),
+                "",  # 京东接口不返回二维码图片，此项恒为空
+                extra=extra if mode != "image" else "",
+                bind_id=bind_id):
+            yield msg
 
     # ---------- 会话黑白名单 ----------
     def _chat_blocked(self, event: AstrMessageEvent) -> bool:
@@ -1422,6 +1936,14 @@ class ZheTaoKeFanliPlugin(Star):
                         extra=desc if mode != "image" else "",
                         bind_id=bind_id, markdown=markdown)
                 logger.warning(f"[ztk] 闪购红包推送转链失败: {res}")
+                return ""
+            if kind == "jd":
+                d = await self._jd_rp(bind_id)
+                if d.get("ok"):
+                    return self._rp_text(
+                        "🛍 每日京东外卖红包来啦~", str(d.get("link") or ""),
+                        bind_id=bind_id, markdown=markdown)
+                logger.warning(f"[ztk] 京东红包推送转链失败: {d.get('error')}")
                 return ""
             if kind == "orders":
                 s = self.store.stats()
@@ -1601,6 +2123,44 @@ class ZheTaoKeFanliPlugin(Star):
                     f"口令: {d.get('dy_password', '')}")
             else:
                 yield event.plain_result(f"转链失败: {res.get('msg') or res}")
+        except Exception as e:
+            yield event.plain_result(f"转链出错: {e}")
+
+    @filter.command("京东转链", alias={"京东"})
+    async def cmd_jd(self, event: AstrMessageEvent):
+        """京东转链（商品/活动链接、短链、口令、SKU ID 均可，含京东外卖活动）"""
+
+        if self._chat_blocked(event):
+            return
+        content = self._rest_text(event)
+        if not content:
+            yield event.plain_result(
+                "用法: 京东转链 [京东商品链接/活动链接/短链/口令/SKU ID]")
+            return
+        if not self._jd_union_id():
+            yield event.plain_result(
+                "❌ 管理员未配置京东联盟ID（插件配置「折淘客凭据」→ 京东联盟ID）")
+            return
+        bind_id = self._get_bind_or_auto(event)
+        try:
+            d = await self._do_convert("jd", content, bind_id)
+            if not d.get("ok"):
+                yield event.plain_result(
+                    f"转链失败: {d.get('error') or d.get('message') or d}")
+                return
+            link = str(d.get("link") or "")
+            if self._use_markdown(event):
+                yield self._text_result(
+                    event,
+                    f"**🛍 京东转链成功**\n"
+                    f"返利ID: `{bind_id}` · 下单后自动归你名下\n\n"
+                    f"[👉 点我打开商品/活动]({link})")
+            else:
+                yield self._text_result(
+                    event,
+                    f"🛍 京东转链成功（你的返利ID: {bind_id}）\n"
+                    f"推广链接: {link}\n"
+                    f"下单后订单自动归你名下~")
         except Exception as e:
             yield event.plain_result(f"转链出错: {e}")
 
