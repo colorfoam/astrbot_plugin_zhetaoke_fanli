@@ -3,7 +3,11 @@ const bridge = window.AstrBotPluginPage;
 const $ = (s) => document.querySelector(s);
 
 let page = 1;
-const pageSize = 20;
+let pageSize = 20;
+try {
+  // 沙箱 iframe 里 localStorage 可能被禁（访问即抛异常），必须兜底，否则整个脚本初始化崩溃、全部按钮失效
+  pageSize = parseInt(localStorage.getItem("ztk_order_page_size") || "20", 10) || 20;
+} catch (e) {}
 
 function toast(m) {
   const t = $("#toast");
@@ -18,7 +22,11 @@ function statusTag(r) {
   const [cls, txt] = map[r.status] || ["paid", r.status_text || r.status || "—"];
   return `<span class="tag ${cls}">${txt}</span>`;
 }
-function pfTag(p) { return `<span class="pf ${p}">${p}</span>`; }
+function pfTag(p) {
+  // 平台名按字拆开（<i>），配合 CSS 在窄表中按 3 字宽对齐：两字平台自动补字距
+  const chars = [...String(p || "")].map((c) => `<i>${esc(c)}</i>`).join("");
+  return `<span class="pf ${esc(p)}">${chars}</span>`;
+}
 
 function renderTheme(ctx) {
   document.documentElement.dataset.theme = ctx?.isDark ? "dark" : "light";
@@ -215,6 +223,10 @@ async function convert2() {
     let html = "";
     if (link) html += `<div class="cok">✅ 转链成功</div>` + row("推广链接", link);
     if (d.password) html += row("淘口令", d.password);
+    if (d.pic) {
+      html += row("二维码图片", d.pic);
+      html += `<div class="cqr"><img src="${esc(d.pic)}" alt="二维码" referrerpolicy="no-referrer"></div>`;
+    }
     if (!html) html = `<pre>${esc(JSON.stringify(d, null, 2))}</pre>`;
     $("#cResult2").innerHTML = html;
   } catch (e) { $("#cResult2").innerHTML = `<div class="cerr">请求失败: ${esc(e.message)}</div>`; }
@@ -267,34 +279,64 @@ function sessionPickerHTML(k) {
       <option value="group">群聊</option>
       <option value="private">私聊</option>
     </select>
-    <select class="sp-select" title="从机器人读取的列表">
-      <option value="">加载中…</option>
-    </select>
+    <div class="sp-dd" data-sel-val="" data-sel-ph="加载中…">
+      <button type="button" class="sp-dd-btn" title="从机器人或会话记录读取的列表">
+        <span class="sp-dd-txt">加载中…</span><span class="sp-dd-caret">▾</span>
+      </button>
+      <div class="sp-dd-panel" hidden></div>
+    </div>
     <input class="sp-target" placeholder="或手动输入群号/QQ号">
     <button type="button" class="tagbtn sp-add" data-tk="${esc(k)}">添加</button>
   </div>`;
 }
 
-/* 按当前平台/类型拉取群列表或好友列表填充下拉（读不到则提示手填） */
+/* 向自定义下拉填充目标列表：提示/错误收进面板（点开才见），不再弹 toast */
+async function fillTargetDD(dd, pid, tt) {
+  if (!dd) return;
+  const btn = dd.querySelector(".sp-dd-btn");
+  const panel = dd.querySelector(".sp-dd-panel");
+  const setBtn = (txt) => {
+    dd.dataset.selPh = txt;
+    btn.querySelector(".sp-dd-txt").textContent = txt;
+  };
+  dd.dataset.selVal = "";
+  panel.hidden = true;
+  panel.innerHTML = "";
+  if (!pid) { setBtn("请先手输平台 ID"); return; }
+  try {
+    const d = await bridge.apiGet("push/targets", { platform_id: pid, target_type: tt });
+    const ts = d.targets || [];
+    const srcTag = d.source === "sessions" ? "，来自会话记录" : "";
+    if (ts.length) {
+      const ph = `选择${tt === "group" ? "群" : "好友"}（${ts.length}${srcTag}）`;
+      setBtn(ph);
+      panel.innerHTML = `<div class="sp-dd-head">${esc(ph)}</div>`
+        + ts.map((t) => {
+          const label = t.name && t.id && t.name !== t.id ? `${t.name}（${t.id}）` : (t.name || t.id);
+          return `<button type="button" class="sp-dd-item" data-v="${esc(t.id)}"`
+            + ` data-label="${esc(label)}" title="${esc(t.name || t.id)}">${esc(label)}</button>`;
+        }).join("");
+    } else {
+      const err = d.error || "该平台读不到列表，请手动填写 ID";
+      setBtn("暂无可选，点此查看原因");
+      panel.innerHTML = `<div class="sp-dd-empty">${esc(err)}</div>`;
+    }
+  } catch (e) {
+    setBtn("读取失败，请手填");
+    panel.innerHTML = `<div class="sp-dd-empty">请求失败：${esc(e.message)}</div>`;
+  }
+}
+
+/* 按当前平台/类型拉取群列表或好友列表填充自定义下拉（读不到则提示手填，原因收进面板） */
 async function loadPickerTargets(picker) {
   if (!picker) return;
-  const pid = picker.querySelector(".sp-platform").value;
-  const tt = picker.querySelector(".sp-type").value;
-  const sel = picker.querySelector(".sp-select");
+  const dd = picker.querySelector(".sp-dd");
+  if (!dd) return;
+  const typeSel = picker.querySelector(".sp-type");
+  const tt = typeSel ? typeSel.value : "group";
   const input = picker.querySelector(".sp-target");
-  input.placeholder = tt === "group" ? "或手动输入群号" : "或手动输入QQ号";
-  sel.innerHTML = '<option value="">加载中…</option>';
-  try {
-    const d = await bridge.apiGet("push/targets",
-      { platform_id: pid, target_type: tt });
-    const ts = d.targets || [];
-    sel.innerHTML = ts.length
-      ? `<option value="">选择${tt === "group" ? "群" : "好友"}（${ts.length}）</option>`
-        + ts.map((t) => `<option value="${esc(t.id)}">${esc(t.name)}（${esc(t.id)}）</option>`).join("")
-      : '<option value="">该平台读不到列表，请手填</option>';
-  } catch (e) {
-    sel.innerHTML = '<option value="">该平台读不到列表，请手填</option>';
-  }
+  if (input) input.placeholder = tt === "group" ? "或手动输入群号" : "或手动输入QQ号";
+  await fillTargetDD(dd, picker.querySelector(".sp-platform").value, tt);
 }
 
 function initSessionPickers() {
@@ -409,6 +451,11 @@ function bindCfgEvents() {
       eye.textContent = show ? "🙈 隐藏" : "👁 显示";
       return;
     }
+    // 点击二维码 → 新标签打开原图
+    if (e.target.tagName === "IMG" && e.target.closest(".cqr")) {
+      window.open(e.target.src, "_blank");
+      return;
+    }
     const rm = e.target.closest(".tagchip a");
     if (rm) {
       const arr = cfgListVals[rm.dataset.tk] || [];
@@ -416,16 +463,20 @@ function bindCfgEvents() {
       refreshTagbox(rm.dataset.tk);
       return;
     }
-    // 会话选择器「添加」：优先手填输入框，否则取下拉选中的群号/QQ号
+    // 会话选择器「添加」：优先手填输入框，否则取自定义下拉选中的群号/QQ号
     const spAdd = e.target.closest(".sp-add");
     if (spAdd) {
       const picker = spAdd.closest(".session-picker");
       const input = picker.querySelector(".sp-target");
-      const sel = picker.querySelector(".sp-select");
-      const val = (input && input.value.trim()) || (sel && sel.value) || "";
+      const dd = picker.querySelector(".sp-dd");
+      const val = (input && input.value.trim()) || (dd && dd.dataset.selVal) || "";
       tagAdd(spAdd.dataset.tk, val);
       if (input) input.value = "";
-      if (sel) sel.value = "";
+      if (dd) {  // 重置下拉选中态，按钮文字恢复占位提示
+        dd.dataset.selVal = "";
+        const txt = dd.querySelector(".sp-dd-txt");
+        if (txt && dd.dataset.selPh) txt.textContent = dd.dataset.selPh;
+      }
       return;
     }
     const add = e.target.closest(".tagbtn:not(.sp-add)");
@@ -457,7 +508,7 @@ function bindCfgEvents() {
 
 /* 保存全部板块：收集所有卡片的字段，经右下角浮动保存条提交 */
 async function saveConfigAll() {
-  const btn = $("#cfgSaveAll"), msg = $("#cfgMsg");
+  const btn = $("#cfgSaveAll");
   const payload = {};
   document.querySelectorAll("#cfgBody .cfg-input[data-key]").forEach((el) => {
     payload[el.dataset.key] = el.dataset.type === "bool" ? el.checked : el.value;
@@ -467,12 +518,12 @@ async function saveConfigAll() {
     const k = el.dataset.tk;
     if (cfgListVals[k]) payload[k] = cfgListVals[k];
   });
-  btn.disabled = true; msg.textContent = "保存中…";
+  btn.disabled = true;
   try {
     const d = await bridge.apiGet("config/save", { data: JSON.stringify(payload) });
-    if (d.error) msg.textContent = "❌ " + d.error;
-    else { msg.textContent = "✅ 已保存并生效"; toast("配置已保存"); }
-  } catch (e) { msg.textContent = "保存失败: " + e.message; }
+    if (d.error) toast("❌ 保存失败: " + d.error);
+    else toast("✅ 配置已保存");
+  } catch (e) { toast("❌ 保存失败: " + e.message); }
   btn.disabled = false;
 }
 
@@ -511,17 +562,7 @@ async function loadPlatforms() {
 }
 
 async function loadTargets() {
-  const pid = $("#pushPlatform").value;
-  const tt = $("#pushTargetType").value;
-  const dl = $("#pushTargetList");
-  dl.innerHTML = "";
-  if (!pid) return;
-  try {
-    const d = await bridge.apiGet("push/targets", { platform_id: pid, target_type: tt });
-    if (d.error) { toast(d.error); return; }
-    dl.innerHTML = (d.targets || []).map((t) =>
-      `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join("");
-  } catch (e) { toast("读取会话列表失败: " + e.message); }
+  await fillTargetDD($("#pushDd"), $("#pushPlatform").value, $("#pushTargetType").value);
 }
 
 async function loadPushTasks() {
@@ -570,11 +611,13 @@ function resetPushForm() {
 }
 
 async function savePush() {
+  const dd = $("#pushDd");
   const params = {
     cron: $("#pushCron").value.trim(),
     platform: $("#pushPlatform").value,
     target_type: $("#pushTargetType").value,
-    target_id: $("#pushTarget").value.trim(),
+    // 输入框为空时回退用自定义下拉的选中值（表单重置只清输入框，下拉按钮仍显示已选目标）
+    target_id: $("#pushTarget").value.trim() || (dd && dd.dataset.selVal) || "",
     kind: $("#pushKind").value,
     bind_id: $("#pushBind").value.trim(),
   };
@@ -607,14 +650,26 @@ function editPush(id) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-async function pushAction(act, id) {
+async function pushAction(act, id, btn) {
+  if (act === "once" && btn) {  // 防连点：推送进行中禁用按钮
+    btn.disabled = true;
+    btn.dataset.old = btn.textContent;
+    btn.textContent = "推送中…";
+  }
   try {
     const d = await bridge.apiGet("push/" + act, { id });
     if (d.error) { toast(d.error); return; }
-    if (act === "once") { toast("已推送 ✅"); return; }
+    if (act === "once") {
+      toast(d.dup ? "该任务刚刚已推送过，已跳过重复请求"
+                  : "已推送 ✅ " + (d.info || ""));
+      return;
+    }
     if (act === "delete" && editingPushId === id) resetPushForm();
     loadPushTasks();
   } catch (e) { toast("操作失败: " + e.message); }
+  finally {
+    if (btn) { btn.disabled = false; btn.textContent = btn.dataset.old || "推送"; }
+  }
 }
 
 function cronQuick() {
@@ -623,8 +678,113 @@ function cronQuick() {
   $("#pushCron").value = `${Number(m)} ${Number(h)} * * *`;
 }
 
-function bindPushEvents() {
-  $("#pushPlatform").addEventListener("change", loadTargets);
+/* ---------- 表格列宽：拖拽表头右缘调节，localStorage 记忆（订单表/定时推送表共用） ----------
+ * titleCol：弹性列索引（不保存/不恢复/恢复时清除固定宽度，始终占据剩余宽度） */
+function initColResize(tableSel, key, withClamp, flexCol = -1, lockCol = -1, base = []) {
+  const table = document.querySelector(tableSel);
+  if (!table) return;
+  const ths = table.querySelectorAll("th");
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(key) || "{}"); } catch (e) { saved = {}; }
+  const persist = () => {
+    const w = {};
+    ths.forEach((t, j) => {
+      if (j !== flexCol && j !== lockCol && t.style.width) w[j] = parseInt(t.style.width, 10);
+    });
+    try { localStorage.setItem(key, JSON.stringify(w)); } catch (e) {}
+  };
+  // 可用宽度 = 容器(.box)内容区宽度。
+  // 注意不能用 table.clientWidth：table-layout:fixed 下固定列之和超出容器时
+  // 表格会溢出变宽，clientWidth 跟着虚高，clamp 永远追不上 → 标题列被挤成 0
+  const availW = () => {
+    const box = table.parentElement;
+    const cs = getComputedStyle(box);
+    return box.clientWidth - parseFloat(cs.paddingLeft || "0") - parseFloat(cs.paddingRight || "0");
+  };
+  // 弹性列（订单表「标题」）：宽度 = 容器宽 - 其余固定列之和，
+  // 下限 150px（不够时等比压缩固定列），上限 360px（超出部分按比例分给固定列，
+  // 避免默认标题超长、其他列被挤没）
+  const MIN_FLEX = 150, MAX_FLEX = 360;
+  const fit = () => {
+    if (flexCol < 0 || !table.offsetParent) return;  // 面板隐藏时跳过（宽度为 0 会误判）
+    const flexTh = ths[flexCol];
+    flexTh.style.width = "";
+    const cols = [];  // 可伸缩的固定列（不含弹性列与锁定列）
+    let sum = 0;
+    ths.forEach((t, j) => {
+      if (j === flexCol) return;
+      const w = parseFloat(t.style.width);
+      if (w) { sum += w; if (j !== lockCol) cols.push(j); }
+    });
+    let flex = availW() - sum;
+    if (flex < MIN_FLEX) {
+      const lockW = lockCol >= 0 ? parseFloat(ths[lockCol].style.width) || 0 : 0;
+      const rest = sum - lockW;
+      if (rest > 200) {
+        const scale = Math.max(0.3, (availW() - MIN_FLEX - lockW) / rest);
+        cols.forEach((j) => {
+          ths[j].style.width = Math.max(64, Math.round(parseFloat(ths[j].style.width) * scale)) + "px";
+        });
+      }
+      flex = MIN_FLEX;
+    } else if (flex > MAX_FLEX && cols.length) {
+      const extra = flex - MAX_FLEX;
+      const base = cols.reduce((s, j) => s + parseFloat(ths[j].style.width), 0);
+      if (base > 0) {
+        cols.forEach((j) => {
+          const w = parseFloat(ths[j].style.width);
+          ths[j].style.width = Math.round(w + extra * (w / base)) + "px";
+        });
+      }
+      flex = MAX_FLEX;
+    }
+    flexTh.style.width = Math.round(flex) + "px";
+  };
+  ths.forEach((th, i) => {
+    if (i === lockCol) {
+      th.style.width = "290px";  // 操作列固定宽度（4 个按钮），完整显示，不参与压缩/记忆
+    } else if (saved[i] && i !== flexCol) {
+      th.style.width = saved[i] + "px";
+    } else if (i === flexCol) {
+      th.style.width = "";  // 弹性列由 fit() 分配（旧记忆可能存过它的宽度，忽略）
+    } else if (base && base[i]) {
+      // 关键：把基准列宽落成内联样式——fit() 只统计内联宽度，
+      // 若留在 CSS 里，未被拖过的列不参与统计，剩余空间会全灌给弹性列导致其超长
+      th.style.width = base[i] + "px";
+    }
+    if (i === lockCol) return;  // 操作列不放拖拽条
+    const h = document.createElement("div");
+    h.className = "col-rs";
+    h.title = "拖拽调节列宽（自动记忆）";
+    h.addEventListener("pointerdown", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      // 冻结所有列当前宽度：否则弹性列会吸收拖拽增量，拖拽条不跟鼠标
+      const frozen = Array.from(ths, (t) => Math.round(t.getBoundingClientRect().width));
+      ths.forEach((t, j) => { t.style.width = frozen[j] + "px"; });
+      const startX = ev.clientX;
+      const move = (e) => {
+        th.style.width = Math.max(48, frozen[i] + e.clientX - startX) + "px";
+      };
+      const up = () => {
+        document.removeEventListener("pointermove", move);
+        document.removeEventListener("pointerup", up);
+        persist();
+        fit();  // 拖完重新分配弹性列，避免表格溢出
+      };
+      document.addEventListener("pointermove", move);
+      document.addEventListener("pointerup", up);
+    });
+    th.appendChild(h);
+  });
+  fit();
+  if (withClamp) {
+    window.addEventListener("resize", fit);
+    window.__clampOrderCols = fit;  // 切到订单页时也会调一次（面板刚显示才有宽度）
+  }
+}
+
+function bindPushEvents() {  $("#pushPlatform").addEventListener("change", loadTargets);
   $("#pushTargetType").addEventListener("change", loadTargets);
   $("#pushSaveBtn").addEventListener("click", savePush);
   $("#pushCancelBtn").addEventListener("click", resetPushForm);
@@ -634,7 +794,32 @@ function bindPushEvents() {
     if (!b) return;
     const { act, id } = b.dataset;
     if (act === "edit") editPush(id);
-    else pushAction(act, id);
+    else pushAction(act, id, b);
+  });
+  // 自定义会话下拉（配置页 + 定时推送页共用）：开合、选项点选、点外部收起（一次注册）
+  document.addEventListener("click", (e) => {
+    const item = e.target.closest(".sp-dd-item");
+    if (item) {
+      const dd = item.closest(".sp-dd");
+      dd.querySelector(".sp-dd-panel").hidden = true;
+      dd.dataset.selVal = item.dataset.v;
+      dd.querySelector(".sp-dd-txt").textContent = item.dataset.label || item.dataset.v;
+      const host = item.closest(".session-picker") || item.closest(".panel");
+      const inp = host && host.querySelector(".sp-target, #pushTarget");
+      if (inp) inp.value = item.dataset.v;
+      return;
+    }
+    const btn = e.target.closest(".sp-dd-btn");
+    if (btn) {
+      const panel = btn.closest(".sp-dd").querySelector(".sp-dd-panel");
+      const show = panel.hidden;
+      document.querySelectorAll(".sp-dd-panel").forEach((p) => { p.hidden = true; });
+      panel.hidden = !show;
+      return;
+    }
+    if (!e.target.closest(".sp-dd")) {
+      document.querySelectorAll(".sp-dd-panel").forEach((p) => { p.hidden = true; });
+    }
   });
 }
 
@@ -650,7 +835,7 @@ async function loadHelpCommands() {
       return `${names}${tag} <span class="muted">— ${esc(c.desc)}</span>`;
     }).join("<br>");
   } catch (e) {
-    el.textContent = "聊天指令：绑定 / 我的返利 / 查订单 / 美团红包 / 闪购红包 / 京东红包 / 淘宝转链 内容 / 抖音转链 内容 / 搜抖音 关键词 / 同步订单(管理员)";
+    el.textContent = "聊天指令：绑定 / 我的返利 / 查订单 / 美团红包 / 闪购红包 / 京东红包 / 淘宝转链 内容 / 京东转链 内容 / 同步订单(管理员)";
   }
 }
 
@@ -661,7 +846,7 @@ function bindEvents() {
     t.classList.add("active");
     $("#" + t.dataset.p).classList.add("active");
     if (t.dataset.p === "p1") loadStats();
-    if (t.dataset.p === "p2") loadOrders(1);
+    if (t.dataset.p === "p2") { loadOrders(1); if (window.__clampOrderCols) window.__clampOrderCols(); }
     if (t.dataset.p === "p3") loadBindings();
     if (t.dataset.p === "p6") { loadPlatforms(); loadPushTasks(); }
     if (t.dataset.p === "p7") loadConfig();
@@ -691,19 +876,31 @@ function bindEvents() {
   });
   $("#prevBtn").addEventListener("click", () => loadOrders(page - 1));
   $("#nextBtn").addEventListener("click", () => loadOrders(page + 1));
+  const psSel = $("#pageSizeSel");
+  psSel.value = String(pageSize);
+  if (psSel.value !== String(pageSize)) psSel.value = "20";  // 记忆值不在选项里则回退
+  psSel.addEventListener("change", () => {
+    pageSize = parseInt(psSel.value, 10) || 20;
+    try { localStorage.setItem("ztk_order_page_size", String(pageSize)); } catch (e) {}
+    loadOrders(1);
+  });
   $("#convertBtn").addEventListener("click", convert);
   $("#convert2Btn").addEventListener("click", convert2);
   // 配置页：每张板块卡片自己的「保存本板块」按钮
   // 配置页：右下角浮动「保存设置」一键保存全部板块
   $("#cfgSaveAll").addEventListener("click", saveConfigAll);
   bindCfgEvents();
-  // 转链结果「复制」按钮（事件委托，覆盖 cResult 动态生成的按钮）
-  $("#cResult").addEventListener("click", (e) => {
+  // 转链结果「复制」按钮（document 级事件委托，覆盖 cResult / cResult2 等动态生成的按钮）
+  document.addEventListener("click", (e) => {
     const b = e.target.closest("button[data-copy]");
     if (!b) return;
     copyText(b.dataset.copy, b);
   });
   bindPushEvents();
+  initColResize("#p2 table", "ztk_order_col_w", true, 2, -1,
+    [84, 200, 0, 92, 86, 86, 96, 118, 170, 130]);   // 标题列弹性，其余基准宽内联化
+  initColResize("#p6 table", "ztk_push_col_w", false, -1, 6,
+    [0, 0, 96, 0, 96, 80, 0]);                      // 操作列锁定固定宽
 }
 
 (async () => {
