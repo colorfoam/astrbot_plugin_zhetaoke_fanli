@@ -45,20 +45,56 @@ async function loadStats() {
   } catch (e) { toast("加载统计失败: " + e.message); }
 }
 
+/* 时间筛选格式校验：4位年 / 6位年月 / 8位年月日 / 带分隔符日期，月份日期必须真实存在 */
+function dateValid(s) {
+  const t = String(s || "").trim();
+  if (!t) return true;
+  if (/[^\d年月日\-/. ]/.test(t)) return false;
+  const norm = t.replace(/[年月./]/g, "-").replace(/日/g, "").replace(/-+$/, "").trim();
+  let parts = norm.split("-").filter(Boolean);
+  if (parts.length !== 1) return parts.length >= 1;
+  const p = parts[0];
+  if (!/^\d+$/.test(p)) return false;
+  if (p.length === 4) parts = [p];
+  else if (p.length === 6) parts = [p.slice(0, 4), p.slice(4)];
+  else if (p.length === 8) parts = [p.slice(0, 4), p.slice(4, 6), p.slice(6)];
+  else return false;
+  const n = parts.map(Number);
+  if (parts.some((x) => !/^\d+$/.test(x))) return false;
+  if (n[0] < 2015 || n[0] > 2100) return false;
+  if (parts.length >= 2 && !(n[1] >= 1 && n[1] <= 12)) return false;
+  if (parts.length >= 3) {
+    const last = new Date(n[0], n[1], 0).getDate();
+    if (!(n[2] >= 1 && n[2] <= last)) return false;
+  }
+  return true;
+}
+
+function markDate(el, ok) {
+  el.style.borderColor = ok ? "" : "#d93026";
+  el.title = ok ? "" : "格式：2026-09-14 / 20260914 / 202609(整月) / 2026(全年)，月份日期须真实存在";
+}
+
 function orderParams() {
   const p = {};
   if ($("#fPlatform").value) p.platform = $("#fPlatform").value;
   if ($("#fStatus").value) p.status = $("#fStatus").value;
-  if ($("#fStart").value) p.start = $("#fStart").value + " 00:00:00";
-  if ($("#fEnd").value) p.end = $("#fEnd").value + " 23:59:59";
+  const sOk = dateValid($("#fStart").value), eOk = dateValid($("#fEnd").value);
+  markDate($("#fStart"), sOk);
+  markDate($("#fEnd"), eOk);
+  if (!sOk || !eOk) { toast("日期格式不对：支持 2026-09-14、20260914、202609(整月)、2026(全年)"); return null; }
+  if ($("#fStart").value) p.start = $("#fStart").value.trim();
+  if ($("#fEnd").value) p.end = $("#fEnd").value.trim();
   if ($("#fQ").value) p.q = $("#fQ").value;
   return p;
 }
 
 async function loadOrders(p) {
   page = Math.max(1, p || 1);
+  const params = orderParams();
+  if (!params) return;   // 日期校验未过
   try {
-    const d = await bridge.apiGet("orders", { ...orderParams(), page, page_size: pageSize });
+    const d = await bridge.apiGet("orders", { ...params, page, page_size: pageSize });
     const rows = d.rows || [];
     $("#orderRows").innerHTML = rows.map((r) => `
       <tr><td>${pfTag(r.platform)}</td><td>${r.orderid}</td><td title="${r.title}">${r.title || "—"}</td>
@@ -104,14 +140,66 @@ async function doSync() {
   b.disabled = false; b.textContent = "⟳ 立即同步订单";
 }
 
+/* 可靠复制：iframe 里 navigator.clipboard 常被禁，用 execCommand 兜底 */
+function copyText(text, btn) {
+  const done = () => {
+    if (!btn) { toast("已复制"); return; }
+    btn.textContent = "✓ 已复制";
+    setTimeout(() => { btn.textContent = "复制"; }, 1500);
+  };
+  const legacy = () => {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.cssText = "position:fixed;top:-999px;left:-999px;opacity:0";
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    try {
+      if (document.execCommand("copy")) { done(); }
+      else { toast("复制失败，请长按/选中手动复制"); }
+    } catch (e) { toast("复制失败，请长按/选中手动复制"); }
+    document.body.removeChild(ta);
+  };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(done).catch(legacy);
+  } else legacy();
+}
+
+const ROW_BTN = 'class="cbtn" data-copy="';
+function row(label, value) {
+  return `<div class="crow"><span class="clabel">${label}</span>`
+    + `<span class="cval"><a href="${esc(value)}" target="_blank">${esc(value)}</a></span>`
+    + `<button ${ROW_BTN}${esc(value)}">复制</button></div>`;
+}
+
 async function convert() {
   const params = { platform: $("#cPlatform").value };
   if ($("#cBind").value) params.bind_id = $("#cBind").value;
-  $("#cResult").textContent = "请求中…";
+  $("#cResult").innerHTML = '<span style="opacity:.6">请求中…</span>';
   try {
     const d = await bridge.apiGet("convert", params);
-    $("#cResult").textContent = JSON.stringify(d, null, 2);
-  } catch (e) { $("#cResult").textContent = "失败: " + e.message; }
+    if (d.error) { $("#cResult").innerHTML = `<div class="cerr">❌ ${esc(d.error)}</div>`; return; }
+    const link = d.link || (d.item && (d.item.short_link || d.item.click_url)) || "";
+    let html = "";
+    if (link) html += `<div class="cok">✅ 生成成功</div>` + row("推广链接", link);
+    if (d.password) html += row("淘口令", d.password);
+    if (d.pic) {
+      if ($("#cShortQr").checked) {
+        // 二维码图片长链接 → 短链（选项勾选时）
+        try {
+          const s = await bridge.apiGet("shorten", { url: d.pic, engine: "sina" });
+          if (s.ok) html += row("二维码短链", s.short);
+          else html += `<div class="cwarn">⚠ 二维码短链失败: ${esc(s.error || "")}</div>` + row("二维码图片", d.pic);
+        } catch (e) {
+          html += `<div class="cwarn">⚠ 二维码短链请求失败</div>` + row("二维码图片", d.pic);
+        }
+      } else {
+        html += row("二维码图片", d.pic);
+      }
+      html += `<div class="cqr"><img src="${esc(d.pic)}" alt="二维码" referrerpolicy="no-referrer"></div>`;
+    }
+    if (!html) html = `<pre>${esc(JSON.stringify(d, null, 2))}</pre>`;
+    $("#cResult").innerHTML = html;
+  } catch (e) { $("#cResult").innerHTML = `<div class="cerr">请求失败: ${esc(e.message)}</div>`; }
 }
 
 async function convert2() {
@@ -119,15 +207,277 @@ async function convert2() {
   if (!content) { toast("请输入商品链接或口令"); return; }
   const params = { platform: $("#cPlatform2").value, content };
   if ($("#cBind2").value) params.bind_id = $("#cBind2").value;
-  $("#cResult2").textContent = "请求中…";
+  $("#cResult2").innerHTML = '<span style="opacity:.6">请求中…</span>';
   try {
     const d = await bridge.apiGet("convert", params);
-    $("#cResult2").textContent = JSON.stringify(d, null, 2);
-  } catch (e) { $("#cResult2").textContent = "失败: " + e.message; }
+    if (d.error) { $("#cResult2").innerHTML = `<div class="cerr">❌ ${esc(d.error)}</div>`; return; }
+    const link = d.link || (d.item && (d.item.short_link || d.item.click_url)) || "";
+    let html = "";
+    if (link) html += `<div class="cok">✅ 转链成功</div>` + row("推广链接", link);
+    if (d.password) html += row("淘口令", d.password);
+    if (!html) html = `<pre>${esc(JSON.stringify(d, null, 2))}</pre>`;
+    $("#cResult2").innerHTML = html;
+  } catch (e) { $("#cResult2").innerHTML = `<div class="cerr">请求失败: ${esc(e.message)}</div>`; }
+}
+
+/* ---------- 配置 ---------- */
+let cfgListVals = {};        // list 型字段当前值（标签编辑器数据源）
+let cfgQuickOpts = {};       // key → [{v,label}] 简单快捷选项（如 Markdown 渠道）
+let cfgPlatformCache = null; // 平台列表缓存（会话选择器用）
+const PICKER_KEYS = ["admin_ids", "chat_blacklist", "chat_whitelist"];
+
+async function loadConfig() {
+  const el = $("#cfgBody");
+  el.textContent = "加载中…";
+  try {
+    const d = await bridge.apiGet("config");
+    if (d.error) { el.textContent = "❌ " + d.error; return; }
+    renderConfig(d.schema || {}, d.values || {});
+    await loadPlatformCache();
+    renderConfig(d.schema || {}, d.values || {});
+    initSessionPickers();
+  } catch (e) { el.textContent = "加载失败: " + e.message; }
+}
+
+/* 读取平台实例列表（会话选择器数据源），失败则只剩手填 */
+async function loadPlatformCache() {
+  try {
+    const d = await bridge.apiGet("push/platforms");
+    cfgPlatformCache = (d.platforms || []).map((p) => ({
+      id: p.id,
+      name: p.name || p.display_name || p.id,
+      type: p.type || "",
+    }));
+  } catch (e) { cfgPlatformCache = []; }
+  // Markdown 渠道列表：简单快捷选项 = 平台实例名 + 适配器类型
+  cfgQuickOpts.rp_md_platforms = (cfgPlatformCache || []).flatMap((p) =>
+    [p.id, p.type].filter(Boolean)).filter((v, i, a) => a.indexOf(v) === i)
+    .map((v) => ({ v, label: v }));
+}
+
+/* 会话选择器：平台 → 群聊/私聊 → 目标下拉（也可在旁边输入框手填），同定时推送页 */
+function sessionPickerHTML(k) {
+  const pls = cfgPlatformCache || [];
+  if (!pls.length) return "";   // 平台读不到 → 只保留手填输入框
+  return `<div class="session-picker" data-k="${esc(k)}">
+    <select class="sp-platform" title="平台（AstrBot 实例）">
+      ${pls.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}（${esc(p.type)}）</option>`).join("")}
+    </select>
+    <select class="sp-type" title="会话类型">
+      <option value="group">群聊</option>
+      <option value="private">私聊</option>
+    </select>
+    <select class="sp-select" title="从机器人读取的列表">
+      <option value="">加载中…</option>
+    </select>
+    <input class="sp-target" placeholder="或手动输入群号/QQ号">
+    <button type="button" class="tagbtn sp-add" data-tk="${esc(k)}">添加</button>
+  </div>`;
+}
+
+/* 按当前平台/类型拉取群列表或好友列表填充下拉（读不到则提示手填） */
+async function loadPickerTargets(picker) {
+  if (!picker) return;
+  const pid = picker.querySelector(".sp-platform").value;
+  const tt = picker.querySelector(".sp-type").value;
+  const sel = picker.querySelector(".sp-select");
+  const input = picker.querySelector(".sp-target");
+  input.placeholder = tt === "group" ? "或手动输入群号" : "或手动输入QQ号";
+  sel.innerHTML = '<option value="">加载中…</option>';
+  try {
+    const d = await bridge.apiGet("push/targets",
+      { platform_id: pid, target_type: tt });
+    const ts = d.targets || [];
+    sel.innerHTML = ts.length
+      ? `<option value="">选择${tt === "group" ? "群" : "好友"}（${ts.length}）</option>`
+        + ts.map((t) => `<option value="${esc(t.id)}">${esc(t.name)}（${esc(t.id)}）</option>`).join("")
+      : '<option value="">该平台读不到列表，请手填</option>';
+  } catch (e) {
+    sel.innerHTML = '<option value="">该平台读不到列表，请手填</option>';
+  }
+}
+
+function initSessionPickers() {
+  document.querySelectorAll("#cfgBody .session-picker")
+    .forEach((p) => loadPickerTargets(p));
+}
+
+function quickSelectHTML(k, opts) {
+  if (!opts.length) return "";
+  return `<select class="tagquick" data-tk="${esc(k)}">
+       <option value="">＋ 从机器人读取…</option>
+       ${opts.map((o) => `<option value="${esc(o.v)}">${esc(o.label)}</option>`).join("")}
+     </select>`;
+}
+
+function tagEditorHTML(k) {
+  const tags = cfgListVals[k] || [];
+  const chips = tags.map((t, i) =>
+    `<span class="tagchip">${esc(t)}<a data-tk="${esc(k)}" data-ti="${i}" title="移除">×</a></span>`).join("");
+  const picker = PICKER_KEYS.includes(k) ? sessionPickerHTML(k) : "";
+  const quick = picker ? "" : quickSelectHTML(k, cfgQuickOpts[k] || []);
+  return `<div class="tagbox">${chips}
+    <input class="tagin" data-tk="${esc(k)}" placeholder="手动输入，回车或点添加">
+    <button type="button" class="tagbtn" data-tk="${esc(k)}">添加</button>${quick}</div>${picker}`;
+}
+
+/* 板块图标（分组名 → emoji，未匹配则用通用图标） */
+const GROUP_ICONS = { "折淘客凭据": "🔑", "返利设置": "💰", "订单同步": "🔄",
+  "会话与推送": "💬", "WebUI仪表盘": "🖥️", "京东": "🛍️", "定时推送": "⏰" };
+
+function cfgField(k, item, val) {
+  const desc = item.description || k;
+  const hint = item.hint ? `<div class="cfg-hint">${esc(item.hint)}</div>` : "";
+  let input = "";
+  const t = item.type || "string";
+  const v = val == null ? "" : String(val);
+  if (t === "bool") {
+    input = `<label class="cfg-switch">
+      <input type="checkbox" class="cfg-input" data-key="${esc(k)}" data-type="bool" ${val ? "checked" : ""}><span>启用</span></label>`;
+  } else if (t === "list") {
+    cfgListVals[k] = Array.isArray(val) ? val.slice()
+      : String(val || "").split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    input = tagEditorHTML(k);
+  } else if (t === "text") {
+    input = `<textarea class="cfg-input" data-key="${esc(k)}" data-type="text" rows="3">${esc(v)}</textarea>`;
+  } else if (Array.isArray(item.options)) {
+    const labels = { both: "both · 文字+二维码图片", link: "link · 仅文字链接",
+      image: "image · 仅二维码图片", tb: "tb · 淘宝独立二维码（推荐）",
+      wx: "wx · 微信小程序码", off: "off · 关闭", "1": "1 · 京小街",
+      "2": "2 · 京东购物（短链 u.jd.com，默认）", "3": "3 · 长链+短链",
+      plain: "plain · 纯文本", markdown: "markdown · 始终 Markdown",
+      auto: "auto · 按渠道自动", blacklist: "blacklist · 黑名单", whitelist: "whitelist · 白名单" };
+    input = `<select class="cfg-input" data-key="${esc(k)}" data-type="${esc(t)}">`
+      + item.options.map((o) => `<option value="${esc(o)}" ${o === v ? "selected" : ""}>${esc(labels[o] || o)}</option>`).join("")
+      + `</select>`;
+  } else if (t === "int" || t === "float") {
+    const step = t === "int" ? "1" : "0.1";
+    const min = item.min != null ? ` min="${item.min}"` : "";
+    const max = item.max != null ? ` max="${item.max}"` : "";
+    input = `<input type="number" step="${step}"${min}${max} class="cfg-input" data-key="${esc(k)}" data-type="${esc(t)}" value="${esc(v)}">`;
+  } else {
+    input = item.secret
+      ? `<div class="cfg-secret"><input type="password" class="cfg-input" data-key="${esc(k)}" data-type="string" value="${esc(v)}"><button type="button" class="cfg-eye">👁 显示</button></div>`
+      : `<input type="text" class="cfg-input" data-key="${esc(k)}" data-type="string" value="${esc(v)}">`;
+  }
+  const cls = (t === "list" || t === "text") ? "cfg-field cfg-wide" : "cfg-field";
+  return `<div class="${cls}"><div class="cfg-label">${esc(desc)}</div>${hint}${input}</div>`;
+}
+
+function renderConfig(schema, values) {
+  let html = "";
+  for (const [gname, g] of Object.entries(schema)) {
+    const items = (g && g.items) || {};
+    const keys = Object.keys(items);
+    if (!keys.length) continue;
+    html += `<div class="cfg-card" data-group="${esc(gname)}">
+      <div class="cfg-card-head"><span class="cfg-badge">${esc(gname)}</span>
+        ${g.description ? `<span class="cfg-card-desc">${esc(g.description)}</span>` : ""}</div>
+      <div class="cfg-card-body">`;
+    for (const k of keys) html += cfgField(k, items[k] || {}, values[k]);
+    html += `</div></div>`;
+  }
+  $("#cfgBody").innerHTML = html || "配置 schema 为空";
+}
+
+/* 标签编辑器交互（事件委托） */
+function tagAdd(k, raw) {
+  const t = String(raw || "").trim();
+  if (!t) return;
+  const arr = cfgListVals[k] || (cfgListVals[k] = []);
+  if (!arr.includes(t)) arr.push(t);
+  refreshTagbox(k);
+}
+function refreshTagbox(k) {
+  const field = document.querySelector(`.tagbox .tagin[data-tk="${CSS.escape(k)}"]`);
+  if (!field) return;
+  const box = field.closest(".tagbox");
+  box.outerHTML = tagEditorHTML(k);
+  // 重新渲染后恢复会话选择器的群/好友列表
+  const picker = document.querySelector(`.session-picker[data-k="${CSS.escape(k)}"]`);
+  if (picker) loadPickerTargets(picker);
+}
+
+function bindCfgEvents() {
+  $("#cfgBody").addEventListener("click", (e) => {
+    // 密码字段 显示/隐藏
+    const eye = e.target.closest(".cfg-eye");
+    if (eye) {
+      const inp = eye.parentElement.querySelector("input");
+      const show = inp.type === "password";
+      inp.type = show ? "text" : "password";
+      eye.textContent = show ? "🙈 隐藏" : "👁 显示";
+      return;
+    }
+    const rm = e.target.closest(".tagchip a");
+    if (rm) {
+      const arr = cfgListVals[rm.dataset.tk] || [];
+      arr.splice(parseInt(rm.dataset.ti, 10), 1);
+      refreshTagbox(rm.dataset.tk);
+      return;
+    }
+    // 会话选择器「添加」：优先手填输入框，否则取下拉选中的群号/QQ号
+    const spAdd = e.target.closest(".sp-add");
+    if (spAdd) {
+      const picker = spAdd.closest(".session-picker");
+      const input = picker.querySelector(".sp-target");
+      const sel = picker.querySelector(".sp-select");
+      const val = (input && input.value.trim()) || (sel && sel.value) || "";
+      tagAdd(spAdd.dataset.tk, val);
+      if (input) input.value = "";
+      if (sel) sel.value = "";
+      return;
+    }
+    const add = e.target.closest(".tagbtn:not(.sp-add)");
+    if (add) {
+      const input = document.querySelector(`.tagin[data-tk="${CSS.escape(add.dataset.tk)}"]`);
+      tagAdd(add.dataset.tk, input && input.value);
+    }
+  });
+  $("#cfgBody").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || !e.target.classList.contains("tagin")) return;
+    e.preventDefault();
+    tagAdd(e.target.dataset.tk, e.target.value);
+  });
+  $("#cfgBody").addEventListener("change", (e) => {
+    // 会话选择器：切平台/切类型 → 重拉群/好友列表
+    if (e.target.classList.contains("sp-platform")
+        || e.target.classList.contains("sp-type")) {
+      loadPickerTargets(e.target.closest(".session-picker"));
+      return;
+    }
+    if (!e.target.classList.contains("tagquick")) return;
+    const sel = e.target;
+    if (sel.value) {
+      tagAdd(sel.dataset.tk, sel.value);
+      sel.value = "";
+    }
+  });
+}
+
+/* 保存全部板块：收集所有卡片的字段，经右下角浮动保存条提交 */
+async function saveConfigAll() {
+  const btn = $("#cfgSaveAll"), msg = $("#cfgMsg");
+  const payload = {};
+  document.querySelectorAll("#cfgBody .cfg-input[data-key]").forEach((el) => {
+    payload[el.dataset.key] = el.dataset.type === "bool" ? el.checked : el.value;
+  });
+  // list 型字段的值来自标签编辑器/会话选择器（按 data-tk 收集）
+  document.querySelectorAll("#cfgBody [data-tk]").forEach((el) => {
+    const k = el.dataset.tk;
+    if (cfgListVals[k]) payload[k] = cfgListVals[k];
+  });
+  btn.disabled = true; msg.textContent = "保存中…";
+  try {
+    const d = await bridge.apiGet("config/save", { data: JSON.stringify(payload) });
+    if (d.error) msg.textContent = "❌ " + d.error;
+    else { msg.textContent = "✅ 已保存并生效"; toast("配置已保存"); }
+  } catch (e) { msg.textContent = "保存失败: " + e.message; }
+  btn.disabled = false;
 }
 
 /* ---------- 定时推送 ---------- */
-const KIND_NAME = { meituan: "美团红包", eleme: "闪购红包", orders: "订单日报" };
+const KIND_NAME = { meituan: "美团红包", eleme: "闪购红包", jd: "京东红包", orders: "订单日报" };
 let pushTasks = {};
 let platformMap = {};  // 平台实例ID → 显示名+机器人账号，用于任务列表展示
 let editingPushId = null;
@@ -288,6 +638,22 @@ function bindPushEvents() {
   });
 }
 
+/* ---------- 使用说明：聊天指令从后端动态读取（与实际注册指令同源，不会写死过期） ---------- */
+async function loadHelpCommands() {
+  const el = $("#helpCmds");
+  if (!el) return;
+  try {
+    const d = await bridge.apiGet("commands");
+    el.innerHTML = (d.commands || []).map((c) => {
+      const names = [c.cmd, ...(c.alias || [])].map((n) => `<code>${esc(n)}</code>`).join(" / ");
+      const tag = c.admin ? ' <span class="tag refund">管理员</span>' : "";
+      return `${names}${tag} <span class="muted">— ${esc(c.desc)}</span>`;
+    }).join("<br>");
+  } catch (e) {
+    el.textContent = "聊天指令：绑定 / 我的返利 / 查订单 / 美团红包 / 闪购红包 / 京东红包 / 淘宝转链 内容 / 抖音转链 内容 / 搜抖音 关键词 / 同步订单(管理员)";
+  }
+}
+
 function bindEvents() {
   document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
@@ -298,14 +664,45 @@ function bindEvents() {
     if (t.dataset.p === "p2") loadOrders(1);
     if (t.dataset.p === "p3") loadBindings();
     if (t.dataset.p === "p6") { loadPlatforms(); loadPushTasks(); }
+    if (t.dataset.p === "p7") loadConfig();
+    if (t.dataset.p === "p5") loadHelpCommands();
   }));
   $("#syncBtn").addEventListener("click", doSync);
   $("#searchBtn").addEventListener("click", () => loadOrders(1));
   $("#fQ").addEventListener("keydown", (e) => { if (e.key === "Enter") loadOrders(1); });
+  // 时间输入：输入时清除红框提示
+  ["fStart", "fEnd"].forEach((id) => {
+    $("#" + id).addEventListener("input", (e) => markDate(e.target, true));
+  });
+  $("#fQuick").addEventListener("change", () => {
+    const v = $("#fQuick").value;
+    const now = new Date();
+    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    if (!v) { $("#fStart").value = ""; $("#fEnd").value = ""; }
+    else if (v === "today") { $("#fStart").value = fmt(now); $("#fEnd").value = fmt(now); }
+    else if (v === "yesterday") { const y = new Date(now); y.setDate(y.getDate() - 1); $("#fStart").value = fmt(y); $("#fEnd").value = fmt(y); }
+    else if (v === "7d") { const s = new Date(now); s.setDate(s.getDate() - 6); $("#fStart").value = fmt(s); $("#fEnd").value = fmt(now); }
+    else if (v === "month") { $("#fStart").value = fmt(new Date(now.getFullYear(), now.getMonth(), 1)); $("#fEnd").value = fmt(now); }
+    else if (v === "lastmonth") {
+      $("#fStart").value = fmt(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+      $("#fEnd").value = fmt(new Date(now.getFullYear(), now.getMonth(), 0));
+    }
+    loadOrders(1);
+  });
   $("#prevBtn").addEventListener("click", () => loadOrders(page - 1));
   $("#nextBtn").addEventListener("click", () => loadOrders(page + 1));
   $("#convertBtn").addEventListener("click", convert);
   $("#convert2Btn").addEventListener("click", convert2);
+  // 配置页：每张板块卡片自己的「保存本板块」按钮
+  // 配置页：右下角浮动「保存设置」一键保存全部板块
+  $("#cfgSaveAll").addEventListener("click", saveConfigAll);
+  bindCfgEvents();
+  // 转链结果「复制」按钮（事件委托，覆盖 cResult 动态生成的按钮）
+  $("#cResult").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-copy]");
+    if (!b) return;
+    copyText(b.dataset.copy, b);
+  });
   bindPushEvents();
 }
 
