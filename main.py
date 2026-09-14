@@ -6,8 +6,8 @@ astrbot_plugin_zhetaoke_fanli — 折淘客全平台返利助手
   - 美团外卖/闪购：转链 + 订单/佣金查询（open_meituan_generateLink / open_meituan_orderList2）
   - 饿了么（淘宝闪购）：红包活动转链（open_eleme_generateLink）
   - 淘宝：高佣转链 + 订单查询（open_gaoyongzhuanlian_tkl / open_dingdanchaxun2）
-  - 抖音：商品搜索/转链（open_douyin_product_search / open_douyin_zhuanlian）
-  - 联盟全平台订单：open_lianmeng_orderList（美团/淘宝/饿了么/抖音/京东/拼多多...）
+  - 联盟全平台订单：open_lianmeng_orderList（美团/淘宝/饿了么/京东/拼多多...）
+    （注：抖音转链/搜索接口因抖客平台关闭已下线，相关功能已于 v1.4.24 移除）
   - 内置 WebUI 仪表盘：订单浏览/搜索/统计/用户返利/转链工具
 """
 
@@ -165,18 +165,6 @@ class ZtkClient:
         return await self._get("open_gaoyongzhuanlian_tkl.ashx", {
             "sid": sid, "pid": pid, "tkl": tkl_content, "external_id": external_id,
             "signurl": "5",
-        })
-
-    async def douyin_convert(self, sid, product_url, external_info=""):
-        return await self._get("open_douyin_zhuanlian.ashx", {
-            "sid": sid, "product_url": quote(str(product_url), safe=""),
-            "external_info": external_info, "use_coupon": "true",
-        })
-
-    async def douyin_search(self, sid, keyword, page=1, page_size=10):
-        return await self._get("open_douyin_product_search.ashx", {
-            "sid": sid, "title": quote(keyword, safe=""),
-            "page": page, "page_size": page_size, "search_type": "3", "sort_type": "1",
         })
 
     async def jd_convert(self, material_id, union_id, position_id="",
@@ -594,9 +582,7 @@ CHAT_COMMANDS = [
     {"cmd": "闪购红包", "alias": ["饿了么红包"], "desc": "获取饿了么/淘宝闪购红包", "admin": False},
     {"cmd": "京东红包", "alias": ["京东外卖红包", "京东外卖"], "desc": "获取京东外卖红包", "admin": False},
     {"cmd": "淘宝转链", "alias": [], "desc": "淘宝转链 内容", "admin": False},
-    {"cmd": "抖音转链", "alias": [], "desc": "抖音转链 内容", "admin": False},
     {"cmd": "京东转链", "alias": ["京东"], "desc": "京东转链 内容", "admin": False},
-    {"cmd": "搜抖音", "alias": [], "desc": "搜抖音 关键词", "admin": False},
     {"cmd": "回溯订单", "alias": [], "desc": "手动回拉历史订单", "admin": True},
     {"cmd": "同步订单", "alias": [], "desc": "手动同步一次订单", "admin": True},
 ]
@@ -605,7 +591,7 @@ CHAT_COMMANDS = [
 @register(
     PLUGIN_NAME,
     "Cupid",
-    "折淘客全平台返利助手：美团外卖/闪购、饿了么（淘宝闪购）、淘宝、抖音订单与佣金查询，含 WebUI 仪表盘",
+    "折淘客全平台返利助手：美团外卖/闪购、饿了么（淘宝闪购）、淘宝、京东订单与佣金查询，含 WebUI 仪表盘",
     "1.0.0",
 )
 class ZheTaoKeFanliPlugin(Star):
@@ -621,6 +607,7 @@ class ZheTaoKeFanliPlugin(Star):
         self._last_push: dict = {}  # orderid -> True，推送去重
         self._push_loop_task = None  # 定时推送任务
         self._push_sent: dict = {}  # 推送任务key -> 已发送日期，防重复
+        self._push_once_at: dict = {}  # 手动推送任务id -> 上次推送时间戳，3秒防重
 
     # ---------- 生命周期 ----------
     async def initialize(self):
@@ -952,13 +939,23 @@ class ZheTaoKeFanliPlugin(Star):
         return json_response({"ok": True, "task": hit})
 
     async def _api_push_once(self):
-        """手动推送一次（忽略 cron，立即按任务配置发送）"""
+        """手动推送一次（忽略 cron，立即按任务配置发送）。
+        3 秒内对同一任务的重复请求直接跳过（防按钮连点/网络重试造成重复消息）"""
         tid = str(self._push_params().get("id") or "").strip()
+        now = time.time()
+        if now - self._push_once_at.get(tid, 0) < 3:
+            return json_response({"ok": True, "dup": True})
         for t in self._load_push_tasks() + self._legacy_push_tasks():
             if t.get("id") == tid:
                 err = await self._send_push(t)
-                return json_response(
-                    {"error": err} if err else {"ok": True})
+                if err:
+                    return json_response({"error": err})
+                self._push_once_at[tid] = now
+                tt = "群聊" if t.get("target_type") == "group" else "私聊"
+                return json_response({
+                    "ok": True,
+                    "info": f"{_kind_name(str(t.get('kind') or ''))} → {tt} "
+                            f"{t.get('target_id')}"})
         return json_response({"error": f"任务不存在: {tid}"})
 
     async def _api_push_platforms(self):
@@ -1006,6 +1003,43 @@ class ZheTaoKeFanliPlugin(Star):
                 pass  # 非 OneBot 平台或未连接，忽略
         return json_response({"platforms": out})
 
+    async def _list_known_umos(self, platform: str = "") -> list[str]:
+        """从 AstrBot 数据库读取已知会话 UMO（与 WebUI「对话」页同数据源）。
+
+        优先走 AstrBot 自带的 get_conversations(platform_id=...)；失败再退裸 SQL
+        （兼容多表名/无 sqlalchemy）。
+        """
+        db = getattr(self.context, "_db", None) or getattr(self.context, "db", None)
+        if db is None and hasattr(self.context, "get_db"):
+            try:
+                db = self.context.get_db()
+            except Exception:
+                db = None
+        if db is None:
+            return []
+        if platform and hasattr(db, "get_conversations"):
+            try:
+                rows = await db.get_conversations(platform_id=platform)
+                umos = sorted({str(getattr(r, "user_id", "") or "") for r in (rows or [])})
+                umos = [u for u in umos if u]
+                if umos:
+                    return umos
+            except Exception:
+                pass
+        try:
+            from sqlalchemy import text as _sql_text
+        except Exception:
+            _sql_text = None
+        for tbl in ("conversations", "conversation", "webchat_conversation"):
+            try:
+                sql = f"SELECT DISTINCT user_id FROM {tbl}"
+                async with db.get_db() as s:
+                    rows = await s.execute(_sql_text(sql) if _sql_text else sql)
+                    return [str(r[0]) for r in rows.fetchall() if r[0]]
+            except Exception:
+                continue
+        return []
+
     async def _api_push_targets(self):
         """读取指定平台的群列表/好友列表（aiocqhttp/NapCat 等 OneBot 平台支持）"""
         q = web_request.query
@@ -1026,9 +1060,80 @@ class ZheTaoKeFanliPlugin(Star):
         except Exception:
             pass
         if client is None or not hasattr(client, "call_action"):
-            return json_response(
-                {"error": "该平台不支持自动读取会话列表（仅 aiocqhttp/NapCat 等 "
-                          "OneBot 平台支持），可直接手动填写 ID"})
+            # 非 OneBot 平台（weixin_oc / webchat / qq_official 等）：
+            # 退回 AstrBot 会话记录里的已知会话（触发过对话的群/好友仍可下拉选择）
+            umos = await self._list_known_umos(pid)
+            if umos:
+                logger.info(f"[ztk] /push/targets 会话回退: 平台={pid} 类型={ttype}，"
+                            f"数据库共 {len(umos)} 条会话记录")
+
+            def _match(mts: tuple, want_group: bool) -> list:
+                """按平台前缀取会话；类型标记兼容各适配器写法，识别不了的两种档位都列出（宁多勿漏）。"""
+                out, seen = [], set()
+                for umo in umos:
+                    parts = umo.split(":", 2)
+                    if len(parts) != 3 or parts[0] != pid:
+                        continue
+                    mid = str(parts[1] or "").strip().lower()
+                    if mid in mts:
+                        ok = True
+                    elif "group" in mid or "群" in mid:
+                        ok = want_group
+                    elif ("friend" in mid or "private" in mid or "c2c" in mid
+                          or "私" in mid or "用户" in mid):
+                        ok = not want_group
+                    else:
+                        ok = True  # 未知类型标记（各适配器自定义）：群聊/私聊档都展示
+                    if ok and parts[2] not in seen:
+                        seen.add(parts[2])
+                        out.append({"id": parts[2], "name": parts[2]})
+                return out
+
+            grp_mts = ("groupmessage", "group")
+            prv_mts = ("friendmessage", "friend", "private")
+            out = _match(grp_mts if ttype == "group" else prv_mts, ttype == "group")
+            if out:
+                return json_response({
+                    "targets": out, "source": "sessions",
+                    "note": "列表来自 AstrBot 会话记录（触发过对话的会话）；没列出的可手动填写 ID"})
+            # 当前类型没有，但另一类型有 → 明确提示切换档位（如 weixin_oc 只有私聊会话）
+            other = _match(prv_mts if ttype == "group" else grp_mts, ttype != "group")
+            other_name = "私聊" if ttype == "group" else "群聊"
+            if other:
+                return json_response({
+                    "error": f"该平台暂无{'群聊' if ttype == 'group' else '私聊'}会话，"
+                             f"但有 {len(other)} 条{other_name}会话——把旁边类型切到「{other_name}」即可选择",
+                    "targets": []})
+            # 真没有该平台的会话：亮出数据库现有平台前缀，便于发现前缀对不上（实例改过名等）
+            prefixes = sorted({u.split(":", 1)[0] for u in umos if ":" in u})
+            if prefixes:
+                counts = "; ".join(
+                    f"{p}（{sum(1 for u in umos if u.split(':', 1)[0] == p)} 条）"
+                    for p in prefixes[:8])
+                cur_ids = set()
+                try:
+                    for it in self.context.platform_manager.platform_insts:
+                        try:
+                            iid = str(getattr(it.meta(), "id", "") or "")
+                            if iid:
+                                cur_ids.add(iid)
+                        except Exception:
+                            continue
+                except Exception:
+                    cur_ids = set()
+                stale = [p for p in prefixes if cur_ids and p not in cur_ids]
+                extra = ""
+                if stale:
+                    extra = (f"。其中 {'、'.join(stale[:4])} 不属于任何当前实例——实例改过名后"
+                             "旧记录不会自动更新，用该会话再触发一次对话就会按新实例名记录；"
+                             "或直接手动填写「当前平台:私聊:会话ID」")
+                return json_response({
+                    "error": f"平台「{pid}」暂无会话记录。数据库里现有会话属于这些平台：{counts}"
+                             f"——如果你的会话在其中，请在平台下拉改选它再选；没有就手动填写 ID{extra}",
+                    "targets": []})
+            return json_response({
+                "error": "该平台暂无会话记录（会话触发过对话后才会出现），请手动填写 ID",
+                "targets": []})
         action = "get_group_list" if ttype == "group" else "get_friend_list"
         try:
             rows = await client.call_action(action)
@@ -1411,20 +1516,69 @@ class ZheTaoKeFanliPlugin(Star):
             return {"ok": False, "error": f"自定义短链API请求失败: {e}"}
         if resp.status != 200 or not text:
             return {"ok": False, "error": f"自定义短链API返回异常(HTTP {resp.status})"}
-        short = ""
-        try:
-            data = json.loads(text)
-            for k in ("shorturl", "short_url", "shortUrl", "short", "url",
-                      "tinyurl", "data"):
-                v = data.get(k) if isinstance(data, dict) else None
-                if isinstance(v, str) and v.strip():
-                    short = v.strip()
-                    break
-        except (ValueError, TypeError):
-            short = text.split()[0] if text else ""
+        short = self._parse_short_text(text)
         if short and re.match(r"^https?://", short, re.I):
             return {"ok": True, "short": short, "engine": "custom", "raw": text[:300]}
         return {"ok": False, "error": f"自定义短链API未返回有效链接: {text[:120]}"}
+
+    @staticmethod
+    def _find_key(obj, names, depth=0):
+        """在嵌套 dict/list 里按键名优先级递归找第一个非空字符串值"""
+        if depth > 8:
+            return ""
+        if isinstance(obj, dict):
+            for k in names:
+                v = obj.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+            for v in obj.values():
+                r = ZheTaoKeFanliPlugin._find_key(v, names, depth + 1)
+                if r:
+                    return r
+        elif isinstance(obj, list):
+            for v in obj:
+                r = ZheTaoKeFanliPlugin._find_key(v, names, depth + 1)
+                if r:
+                    return r
+        return ""
+
+    @staticmethod
+    def _parse_short_text(text: str) -> str:
+        """从自定义短链 API 的返回里提取短链：纯文本首词 / JSON（递归找 shorturl、
+        url_short 等键名，或任何 80 字符内的 http(s) 字符串）"""
+        text = (text or "").strip()
+        if not text:
+            return ""
+        try:
+            data = json.loads(text)
+        except (ValueError, TypeError):
+            return text.split()[0] if text else ""
+
+        def _walk(obj, depth=0):
+            if depth > 6:
+                return ""
+            if isinstance(obj, str):
+                s = obj.strip()
+                return s if re.match(r"^https?://\S{1,80}$", s, re.I) else ""
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    if isinstance(v, str) and re.search(
+                            r"short", k, re.I) and re.match(r"^https?://", v.strip(), re.I):
+                        return v.strip()
+                for k, v in obj.items():
+                    if isinstance(k, str) and re.search(r"long|origin", k, re.I):
+                        continue          # 跳过原始长链字段
+                    r = _walk(v, depth + 1)
+                    if r:
+                        return r
+            if isinstance(obj, list):
+                for v in obj:
+                    r = _walk(v, depth + 1)
+                    if r:
+                        return r
+            return ""
+
+        return _walk(data)
 
     async def _shorten(self, url: str, engine: str = "sina") -> dict:
         """短链接生成：优先自定义API(若配置 shorturl_api)，否则折淘客 sina/baidu"""
@@ -1443,18 +1597,20 @@ class ZheTaoKeFanliPlugin(Star):
         if not self._sid():
             tip = f"（自定义短链API错误: {err_custom}）" if err_custom else ""
             return {"error": f"短链接口需要淘客账号授权SID{tip}，请在插件配置「折淘客凭据 → 淘客账号授权SID」填写，或在「自定义短链API」填入你自己的短链接口"}
-        try:
-            res = await self.client.shorturl(url, self._sid(), engine)
-        except Exception as e:
-            err = f"短链生成出错: {e}"
-            if err_custom:
-                err += f"（自定义短链API错误: {err_custom}）"
-            return {"ok": False, "error": err}
-        short = str(res.get("shorturl") or "").strip()
-        if short:
-            return {"ok": True, "short": short, "engine": engine, "raw": res}
-        err = (res.get("content") or res.get("error_response")
-               or json.dumps(res, ensure_ascii=False))
+        # 新浪通道当前不稳定（官方接口已停），失败自动再试百度 dwz
+        engines = ["baidu", "sina"] if engine == "baidu" else ["sina", "baidu"]
+        err = ""
+        for eng in engines:
+            try:
+                res = await self.client.shorturl(url, self._sid(), eng)
+            except Exception as e:
+                err = f"{eng} 短链生成出错: {e}"
+                continue
+            short = str(res.get("shorturl") or "").strip()
+            if short:
+                return {"ok": True, "short": short, "engine": eng, "raw": res}
+            err = (str(res.get("content") or res.get("error_response"))
+                   or json.dumps(res, ensure_ascii=False))
         msg = f"短链生成失败: {err}"
         if err_custom:
             msg += f"（自定义短链API错误: {err_custom}）"
@@ -1466,7 +1622,7 @@ class ZheTaoKeFanliPlugin(Star):
         """转链核心逻辑，独立 WebUI 与插件页面共用"""
         content = (content or "").strip()
         # 红包/活动转链(meituan/eleme/jd_rp)不需要内容；商品转链才必须传内容
-        if not content and platform in ("taobao", "douyin", "jd"):
+        if not content and platform in ("taobao", "jd"):
             return {"error": "content 不能为空"}
         try:
             if platform == "meituan":
@@ -1479,7 +1635,13 @@ class ZheTaoKeFanliPlugin(Star):
                     self._sid(), self._cfg("eleme_act_id", "10144"), bind_id)
                 data = (res.get("alibaba_alsc_union_eleme_promotion_officialactivity_get_response")
                         or {}).get("data", {})
-                return {"ok": True, "raw": data}
+                # 递归提取推广链接（h5_short_link/short_link）与二维码图片
+                link = self._find_key(
+                    data, ("h5_short_link", "short_link", "h5_url"))
+                pic = self._find_key(
+                    data, ("h5_mini_qrcode", "mini_qrcode", "h5_qr_code",
+                           "picture", "alipay_qr_code"))
+                return {"ok": bool(link), "link": link, "pic": pic, "raw": data}
             if platform == "taobao":
                 if not self._pid():
                     return {"error": "未配置淘宝 PID"}
@@ -1491,12 +1653,6 @@ class ZheTaoKeFanliPlugin(Star):
                 arr = res.get("content") or []
                 return {"ok": bool(arr),
                         "item": arr[0] if arr else None, "raw": res}
-            if platform == "douyin":
-                res = await self.client.douyin_convert(self._sid(), content, bind_id)
-                d = ((res.get("data") or {}).get("data")) or {}
-                return {"ok": res.get("code") == 10000,
-                        "link": d.get("dy_zlink") or d.get("share_link"),
-                        "password": d.get("dy_password"), "raw": d}
             if platform == "jd_rp":
                 # 京东红包（活动转链）：content 可选，留空用内置京东外卖活动页
                 res = await self._jd_rp(bind_id, content)
@@ -1583,9 +1739,7 @@ class ZheTaoKeFanliPlugin(Star):
             "闪购红包 — 获取饿了么/淘宝闪购红包链接\n"
             "京东红包 [活动链接] — 获取京东外卖红包推广链接(不填用默认活动)\n"
             "淘宝转链 [内容] — 淘宝商品高佣转链(淘口令/链接)\n"
-            "抖音转链 [链接/口令] — 抖音商品转链\n"
             "京东转链 [链接/口令] — 京东商品/活动(含京东外卖)转链\n"
-            "搜抖音 [关键词] — 抖音选品搜索\n"
             "查订单 — 查看自己最近的订单\n"
             "同步订单 — 管理员手动同步(仅管理员)\n"
             "回溯订单 [天数] — 管理员回溯历史订单，如 回溯订单 730\n"
@@ -1622,7 +1776,7 @@ class ZheTaoKeFanliPlugin(Star):
         if not info["cnt"]:
             yield event.plain_result(
                 f"你还没有订单记录（返利ID: {bind_id}）。\n"
-                "发送「美团红包」「闪购红包」领取红包，或「淘宝转链/抖音转链 + 商品链接」"
+                "发送「美团红包」「闪购红包」领取红包，或「淘宝转链/京东转链 + 商品链接」"
                 "转链后下单，订单会自动归到你名下。")
             return
         rebate = round(info["total"] * self._rebate_rate(), 2)
@@ -1873,7 +2027,11 @@ class ZheTaoKeFanliPlugin(Star):
             chain = MessageChain().message(text)
             if md:
                 chain = chain.use_markdown(True)
-            await self.context.send_message(umo, chain)
+            ok = await self.context.send_message(umo, chain)
+            if ok is False:
+                # 适配器拒绝发送（如 qq_official 无该群 msg_id 缓存/未开主动发言）→ 按失败处理，不假成功
+                raise RuntimeError("平台适配器拒绝发送（qq_official 等官方机器人需在群里被@过一次"
+                                   "并开启「允许机器人主动发言」后才能主动推送）")
         except Exception as e:
             logger.warning(f"[ztk] 推送失败({umo}): {e}")
             return str(e)
@@ -2099,33 +2257,6 @@ class ZheTaoKeFanliPlugin(Star):
         except Exception as e:
             yield event.plain_result(f"转链出错: {e}")
 
-    @filter.command("抖音转链")
-    async def cmd_douyin(self, event: AstrMessageEvent):
-        """抖音商品转链（商品链接/口令/短链均可）"""
-
-        if self._chat_blocked(event):
-            return
-        content = self._rest_text(event)
-        if not content:
-            yield event.plain_result("用法: 抖音转链 [商品链接或口令]")
-            return
-        if not self._sid():
-            yield event.plain_result("❌ 管理员未配置折淘客授权SID")
-            return
-        bind_id = self._get_bind_or_auto(event)
-        try:
-            res = await self.client.douyin_convert(self._sid(), content, bind_id)
-            d = ((res.get("data") or {}).get("data")) or {}
-            if res.get("code") == 10000:
-                yield event.plain_result(
-                    f"🎵 抖音转链成功（你的返利ID: {bind_id}）\n"
-                    f"链接: {d.get('dy_zlink') or d.get('share_link', '')}\n"
-                    f"口令: {d.get('dy_password', '')}")
-            else:
-                yield event.plain_result(f"转链失败: {res.get('msg') or res}")
-        except Exception as e:
-            yield event.plain_result(f"转链出错: {e}")
-
     @filter.command("京东转链", alias={"京东"})
     async def cmd_jd(self, event: AstrMessageEvent):
         """京东转链（商品/活动链接、短链、口令、SKU ID 均可，含京东外卖活动）"""
@@ -2163,37 +2294,6 @@ class ZheTaoKeFanliPlugin(Star):
                     f"下单后订单自动归你名下~")
         except Exception as e:
             yield event.plain_result(f"转链出错: {e}")
-
-    @filter.command("搜抖音")
-    async def cmd_douyin_search(self, event: AstrMessageEvent, keyword: str = ""):
-        """抖音选品搜索（按佣金金额排序，返回前5）"""
-
-        if self._chat_blocked(event):
-            return
-        if not keyword:
-            yield event.plain_result("用法: 搜抖音 [关键词]")
-            return
-        if not self._sid():
-            yield event.plain_result("❌ 管理员未配置折淘客授权SID")
-            return
-        try:
-            res = await self.client.douyin_search(self._sid(), keyword,
-                                                  page=1, page_size=5)
-            products = ((res.get("data") or {}).get("products")) or []
-            if not products:
-                yield event.plain_result("没搜到相关商品")
-                return
-            lines = [f"🔍 抖音选品「{keyword}」(按佣金排序):"]
-            for i, p in enumerate(products, 1):
-                price = p.get("coupon_price") or p.get("price")
-                lines.append(
-                    f"{i}. {p.get('title', '')[:20]}\n"
-                    f"   ¥{price} 佣金¥{p.get('cos_fee', '?')} "
-                    f"({float(p.get('cos_ratio', 0))/100:.1f}%) 销量{p.get('sales', '?')}\n"
-                    f"   {p.get('detail_url', '')}")
-            yield event.plain_result("\n".join(lines))
-        except Exception as e:
-            yield event.plain_result(f"搜索出错: {e}")
 
     @filter.command("回溯订单")
     async def cmd_backfill(self, event: AstrMessageEvent, days: str = ""):
