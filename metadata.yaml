@@ -1,7 +1,7 @@
 name: astrbot_plugin_zhetaoke_fanli
 display_name: 折淘客全平台返利助手
-desc: 对接折淘客开放平台API，支持美团外卖/闪购、饿了么（淘宝闪购）、淘宝、抖音、京东（含京东外卖活动）的转链、订单与佣金查询，cron 定时推送红包/日报（群/好友列表自动读取），会话黑白名单，Markdown 精美排版，内置 WebUI 仪表盘（订单浏览/搜索/统计/返利/转链工具）。
-short_desc: 美团/淘宝/抖音/京东返利订单查询 + 京东红包 + cron 定时推送 + WebUI 仪表盘
-version: v1.4.1
+desc: 对接折淘客开放平台API，支持美团外卖/闪购、饿了么（淘宝闪购）、淘宝、京东（含京东外卖活动）的转链、订单与佣金查询，cron 定时推送红包/日报（群/好友列表自动读取），会话黑白名单，Markdown 精美排版，内置 WebUI 仪表盘（订单浏览/搜索/统计/返利/转链工具）。
+short_desc: 美团/淘宝/京东返利订单查询 + 京东红包 + cron 定时推送 + WebUI 仪表盘
+version: v1.4.25
 author: Cupid
 astrbot_version: ">=4.0.0"
